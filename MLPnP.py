@@ -466,13 +466,11 @@ def mlpnp(pts, v, cov = None ):
         diff2 += 1-np.vdot(testres2, v[:,i].transpose())
     if diff1 < diff2: RT = T1[0:3,0:4]
     else: RT = T2[0:3,0:4]
-
     x = np.matrix(np.concatenate((rot2rod(RT[:,0:3]),RT[:,3])))
 
     # # Refine with Gauss Newton
     # print(x)
     # x = refine_gauss_newton(x, pts, nullspace_r, nullspace_s, P, use_cov)
-
 
     return np.around(x,10)
 
@@ -481,14 +479,15 @@ def mlpnp(pts, v, cov = None ):
 # Convert pixel coordinate points into rays (unitary bearing vectors)
 # K : 3 by 3 camera matrix
 # pix : each collumn of the matrix is a pixel to transform into ray
-def pix2rays(K, pix):
+def pix2rays(K, pix, noise = True):
     assert K.shape == (3,3)
     assert pix.shape[0] == 2 or pix.shape[0] == 3
     if pix.shape[0] == 2:
         pix = np.concatenate((pix,np.ones((pix.shape[1],1)).transpose()), axis = 0)
     rays = npl.inv(K)*pix
     rays /= np.matrix(npl.norm(rays,axis = 0))
-    rays[0,:] = -rays[0,:]
+    rays[0,:] = -rays[0,:] # invert x coordinate because U (in image plane) is along -X (world frame)
+    if noise: rays += np.random.normal(0,1,(3,6)) # add gaussian noise
     return rays
 
 
@@ -501,14 +500,14 @@ K = np.matrix('640 1 320 ; 0 480 240 ; 0 0 1')
 
 # Ground truth transformation from world to camera
 phi = math.pi/2
-axis = np.matrix('1 1 1').transpose()
+axis = np.matrix('0 0 1').transpose()
 trans = np.matrix('6 5 -10').transpose()
 x_gt = np.concatenate((phi*axis/npl.norm(axis),trans), axis = 0)
 
-nb_pts = 100 # Number of points to generate
+nb_pts = 6 # Number of points to generate
 # Sample random points in image space
-pix = np.matrix(np.concatenate(( np.random.randint(0,640,(1,nb_pts)) , np.random.randint(0,480,(1,nb_pts)) ), axis = 0),dtype=float)
-# pix = np.matrix(' 0 0 ; 640 480 ; 320 240 ; 0 480 ; 640 0 ; 56 359', dtype=float).transpose()
+pix = np.matrix(np.concatenate((np.random.randint(0,640,(1,nb_pts)),
+                                np.random.randint(0,480,(1,nb_pts))), axis = 0), dtype=float)
 
 # Convert those pixels to rays
 rays = pix2rays(K,pix)
