@@ -296,7 +296,7 @@ def residuals_and_jacs(pts, nullspace_r, nullspace_s, x):
     r = np.zeros((2*nb_obs,1));
     jacobians = np.zeros((2*nb_obs,nb_unknowns))
 
-    for i in xrange(nb_obs):
+    for i in range(nb_obs):
         # pt = R*pts[i] + T
         pt = np.add(R.dot(pts[:,i]),np.matrix(T).transpose())
         pt /= np.linalg.norm(pt)
@@ -374,7 +374,7 @@ def mlpnp(pts, v, cov = None ):
     ### TODO : estimate planarity
 
     # Compute nullspaces
-    for i in xrange(nb_pts):
+    for i in range(nb_pts):
         null_2d = null_space(v[:,i].transpose())
         nullspace_r[:,i] = null_2d[:,0]
         nullspace_s[:,i] = null_2d[:,1]
@@ -384,7 +384,7 @@ def mlpnp(pts, v, cov = None ):
     # Stochastic model
     P = np.identity(2*nb_pts)
     A = np.zeros((2*nb_pts,12))
-    for i in xrange(nb_pts):
+    for i in range(nb_pts):
         # Covariance
         if use_cov: P[2*i:2*(i+1),2*i:2*(i+1)] = cov_reduced[:,:,i]
         # r11
@@ -456,7 +456,7 @@ def mlpnp(pts, v, cov = None ):
     # find the best solution with 6 correspondences
     diff1 = 0
     diff2 = 0
-    for i in xrange(nb_pts):
+    for i in range(nb_pts):
         pt4 = np.matrix([pts[0,i],pts[1,i],pts[2,i],1])
         testres1 = T1 * pt4.transpose()
         testres2 = T2 * pt4.transpose()
@@ -470,7 +470,7 @@ def mlpnp(pts, v, cov = None ):
     x = np.matrix(np.concatenate((rot2rod(RT[:,0:3]),RT[:,3])))
 
     # # Refine with Gauss Newton
-    # print x
+    # print(x)
     # x = refine_gauss_newton(x, pts, nullspace_r, nullspace_s, P, use_cov)
 
 
@@ -494,7 +494,7 @@ def pix2rays(K, pix):
 
 
 ### MAIN
-print '^_^ Helloworld ^_^ \n'
+print ('^_^ Helloworld ^_^ \n')
 
  # Intrinsics matrix
 K = np.matrix('640 1 320 ; 0 480 240 ; 0 0 1')
@@ -505,7 +505,7 @@ axis = np.matrix('1 1 1').transpose()
 trans = np.matrix('6 5 -10').transpose()
 x_gt = np.concatenate((phi*axis/npl.norm(axis),trans), axis = 0)
 
-nb_pts = 10 # Number of points to generate
+nb_pts = 100 # Number of points to generate
 # Sample random points in image space
 pix = np.matrix(np.concatenate(( np.random.randint(0,640,(1,nb_pts)) , np.random.randint(0,480,(1,nb_pts)) ), axis = 0),dtype=float)
 # pix = np.matrix(' 0 0 ; 640 480 ; 320 240 ; 0 480 ; 640 0 ; 56 359', dtype=float).transpose()
@@ -525,8 +525,8 @@ world_pts = rod2rot(x_gt[0:3])*cam_pts + np.repeat(x_gt[3:6],nb_pts,axis = 1)
 
 # Apply PnP
 x = mlpnp(world_pts, rays)
-# print x_gt
-print x
+print (x_gt)
+print (x)
 
 # pts = np.matrix(np.random.rand(3,nb_pts))
 # cov = np.random.rand(9,nb_pts)
