@@ -4,31 +4,32 @@ import numpy.linalg as npl
 import random
 from scipy.linalg import null_space
 import math
-from math import sin, cos, acos, sqrt, fabs, pi
+from math import sin, cos, acos, sqrt, pi
 
 
 ### RODRIGUES CONVERSIONS
 def rod2rot(rod):
-    phi = np.linalg.norm(rod)
-    if phi > 0:
+    phi = np.linalg.norm(rod) % (pi*2)
+    if phi > 1e-4:
         N = np.matrix([ [0.     , -rod[2,0],  rod[1,0] ],
                         [rod[2,0] , 0.     , -rod[0,0] ],
                         [-rod[1,0], rod[0,0] , 0.      ] ])
         N = N / phi
         rot = np.identity(3) + (1-cos(phi))*(N**2) + sin(phi)*N
-    else: rot = np.matrix(np.identity(3))
-    return np.matrix(rot) #np.around(rot,6))
+    else: rot = np.identity(3)
+    return rot #np.around(rot,6))
 
 def rot2rod(rot):
     N = [0,0,0]
-    phi = acos((np.trace(rot)-1)/2)
+    cosphi = max(min((np.trace(rot)-1)/2,1),-1)
+    phi = acos(cosphi)
     if phi > np.finfo(float).eps:
         sc = 1 / (2*sin(phi))
         N[0] = (rot[2,1] - rot[1,2])*sc
         N[1] = (rot[0,2] - rot[2,0])*sc
         N[2] = (rot[1,0] - rot[0,1])*sc
-    N = N/npl.norm(N)*phi
-    return np.matrix(N).transpose() #np.around(N,6)
+    N = np.matrix(N)/npl.norm(N)*phi
+    return N.transpose() #np.around(N,6)
 
 
 ### MLPNP REFINING
@@ -48,10 +49,10 @@ def jacobian(pt, nullspace_r, nullspace_s, rot, trans):
     Y1 = pt[1]
     Z1 = pt[2]
 
-    w1 = rot[0]
-    w2 = rot[1]
-    w3 = rot[2]
-
+    w1 = rot[0,0]
+    w2 = rot[1,0]
+    w3 = rot[2,0]
+    print(w1,w2,w3)
     t1 = trans[0]
     t2 = trans[1]
     t3 = trans[2]
@@ -99,8 +100,8 @@ def jacobian(pt, nullspace_r, nullspace_s, rot, trans):
     t43 = t42+1.0
     t44 = Z1*t43
     t23 = t3-t39+t41+t44
-    t25 = 1.0/pow(t8,3.0/2.0)
-    t26 = 1.0/(t8*t8)
+    t25 = 1.0/(t8**(3.0/2))
+    t26 = 1.0/(t8**2)
     t35 = t12*t14*w1*w2
     t36 = t5*t10*t25*w3
     t37 = t5*t13*t26*w3*2.0
@@ -291,7 +292,7 @@ def residuals_and_jacs(pts, nullspace_r, nullspace_s, x):
     nb_unknowns = 6
     w = x[0:3]
     R = rod2rot(w)
-    T = x[3:6]
+    T = np.matrix(x[3:6])
 
     ii = 0
     r = np.zeros((2*nb_obs,1));
@@ -299,11 +300,11 @@ def residuals_and_jacs(pts, nullspace_r, nullspace_s, x):
 
     for i in range(nb_obs):
         # pt = R*pts[i] + T
-        pt = np.add(R.dot(pts[:,i]),np.matrix(T).transpose())
+        pt = R @ pts[:,i] + T
         pt /= np.linalg.norm(pt)
         # r = nullspace[i]^T * pt
-        r[ii  ,0] = np.matrix(nullspace_r[:,i]) * pt
-        r[ii+1,0] = np.matrix(nullspace_s[:,i]) * pt
+        r[ii  ,0] = nullspace_r[:,i] @ pt
+        r[ii+1,0] = nullspace_s[:,i] @ pt
         # jacs
         jac = jacobian(pts[:,i],nullspace_r[:,i], nullspace_s[:,i], w, T)
         jacobians[ii  ,:] = jac[0,:]
@@ -363,7 +364,7 @@ def refine_gauss_newton(x, pts, nullspace_r, nullspace_s, Kll, use_cov):
 ### MLPNP
 # Estimate 4x4 transform matrix (object to camera) from a set of N 3D points (in the object coordinate system),
 # and the corresponding bearing vectors (image rays) and its covariance matrix (size 9*N) if available
-def mlpnp(pts, v, cov = None ):
+def mlpnp(pts, v, cov = None):
     assert pts.shape[1] > 5
     use_cov = (cov is not None)
     # Definitions
@@ -372,7 +373,7 @@ def mlpnp(pts, v, cov = None ):
     nullspace_s = np.zeros((3,nb_pts))
     cov_reduced = np.zeros((2,2,nb_pts))
 
-    ### TODO : estimate planarity
+    ### TODO : planar case
 
     # Compute nullspaces
     for i in range(nb_pts):
@@ -441,8 +442,6 @@ def mlpnp(pts, v, cov = None ):
     t /= ( npl.norm(R_tmp[:,0],axis = 0)*npl.norm(R_tmp[:,1])*npl.norm(R_tmp[:,2]) )**(1./3)
     t = R.dot(t)
 
-    x =  np.matrix(np.concatenate((rot2rod(R),np.matrix(t).transpose())))
-
     # Create transformation matrices to determine translation sign
     transform_1 = np.empty((4,4))
     transform_1[0:3,0:3] = R
@@ -459,46 +458,38 @@ def mlpnp(pts, v, cov = None ):
     diff1 = 0
     diff2 = 0
     for i in range(6):
-        pt4 = np.matrix(np.concatenate((pts[:,i],np.matrix(1)), axis=0))
+        pt4 = np.concatenate((pts[:,i],np.matrix(1)), axis=0)
         testres1 = transform_1_inv @ pt4
         testres2 = transform_2_inv @ pt4
         testres1 = testres1[0:3] / npl.norm(testres1[0:3])
         testres2 = testres2[0:3] / npl.norm(testres2[0:3])
         diff1 += 1-np.dot(testres1.transpose(), v[:,i])
         diff2 += 1-np.dot(testres2.transpose(), v[:,i])
-        # print('')
-        # print('point       :', v[:,i].transpose())
-        # print('transform1  :', testres1.transpose())
-        # print('dot product :', diff1)
-        # print('transform2', testres2.transpose())
-        # print(diff1, diff2)
-        # input('')
 
     if diff1 <= diff2: transform = transform_1[0:3,0:4]
     else: transform = transform_2[0:3,0:4]
 
     x = np.matrix(np.concatenate((rot2rod(transform[:,0:3]),transform[:,3])))
 
-    # # Refine with Gauss Newton
-    # print(x)
-    # x = refine_gauss_newton(x, pts, nullspace_r, nullspace_s, P, use_cov)
+    # Refine with Gauss Newton
+    x_gn = [0]
+    # x_gn = refine_gauss_newton(x, pts, nullspace_r, nullspace_s, P, use_cov)
 
-    return np.around(x,10)
+    return np.around(x,10), np.around(x_gn,10)
 
 
 ### MAIN
 if __name__ == '__main__':
     # Convert pixel coordinate points into rays (unitary bearing vectors)
-    # K : 3 by 3 camera matrix
+    # K : camera matrix (3x3)
     # pix : each collumn of the matrix is a pixel to transform into ray
     def pix2rays(K, pix):
-        assert K.shape == (3,3)
-        assert pix.shape[0] == 2 or pix.shape[0] == 3
+        # add z coordinate if not already existing (=1, on image plane)
         if pix.shape[0] == 2:
             pix = np.concatenate((pix,np.ones((pix.shape[1],1)).transpose()), axis = 0)
-        rays = npl.inv(K)*pix
-        rays[0,:] = -rays[0,:] # invert x coordinate because U (in image plane) is along -X (world frame)
-        rays /= np.matrix(npl.norm(rays,axis = 0))
+        rays = npl.inv(K[0:3,0:3])*pix
+        rays[0,:] = -rays[0,:] # invert x coordinate because U (in image plane) is along -X (in camera frame)
+        rays /= npl.norm(rays,axis = 0)
         return rays
 
     print('^_^ My name is MLPnP.py ^_^ \n')
@@ -506,51 +497,63 @@ if __name__ == '__main__':
     # Intrinsics matrix
     K = np.matrix('640 1 320 ; 0 480 240 ; 0 0 1')
 
-    nb_iter = 100
-    display = False
+    debug = True
+    if debug:
+        nb_iter = 1
+        display = True
+        randomize = False
+    else:
+        nb_iter = 500
+        display = False
+        randomize = True
 
     count_ok = 0
     count_ko = 0
     for i in range(nb_iter):
         # Ground truth transformation from cam to world
-        # phi = pi/2
-        # axis = np.matrix('0 1 1').transpose()
-        # trans = np.matrix('-1 -1 10').transpose()
-        phi = random.uniform(-pi, pi)
-        axis = np.matrix(np.random.random((3,1)))
-        trans = np.matrix(np.random.random((3,1)))
+        if randomize:
+            phi = random.uniform(-pi, pi)
+            axis = np.matrix(np.random.random((3,1)))
+            trans = np.matrix(np.random.random((3,1)))
+        else:
+            phi = pi
+            axis = np.matrix('0 0 1').transpose()
+            trans = np.matrix('0 0 -1').transpose()
 
         rod = phi*axis/npl.norm(axis)
         # print(np.around(rod2rot(rod),2)) ### DEBUG
-
         x_gt = np.concatenate((rod,trans), axis = 0)
 
-        nb_pts = 50 # Number of points to generate
+        nb_pts = 10 # Number of points to generate
         # Sample random points in image space
-        pix = np.matrix(np.concatenate((np.random.randint(0,640,(1,nb_pts)),
-                                        np.random.randint(0,480,(1,nb_pts))), axis = 0), dtype=float)
-
+        pix = np.concatenate((np.random.randint(0,640,(1,nb_pts)), np.random.randint(0,480,(1,nb_pts))), axis = 0)
         # Convert those pixels to rays adding gaussian noise
         rays = pix2rays(K,pix)
 
         # Sample random distances for world coordinates
-        norms = np.random.uniform(2,8,(nb_pts))
+        min_dist = 2
+        max_dist = 10
+        norms = np.random.uniform(min_dist,max_dist,(nb_pts))
 
         # Compute 3D points positions in camera coordinates
-        cam_pts = rays * np.diag(norms)
-        noise_sd = 0.01
-        cam_pts += np.random.normal(0,noise_sd,cam_pts.shape)
+        noise_sd = 0.001
+        cam_pts = rays * np.diag(norms) + np.random.normal(0,noise_sd,rays.shape)
 
         # Convert to world coordinates
-        world_pts = rod2rot(x_gt[0:3]) @ cam_pts + np.repeat(x_gt[3:6],nb_pts,axis = 1)
+        world_pts = rod2rot(x_gt[0:3]) @ cam_pts + np.repeat(x_gt[3:6],nb_pts, axis = 1)
 
         # Apply PnP
-        x = mlpnp(world_pts, rays)
+        x, x_gn = mlpnp(world_pts, rays)
+
         if display:
             print('x_gt  :\n', x_gt)
-            print('x_out :\n', x)
+            print('x_pnp :\n', x)
+            print('x_gn  :\n', x_gn)
+            print(x_gt-x, '\n',npl.norm(x_gt-x))
         if npl.norm(x_gt-x) > 0.1:
             count_ko += 1
+            print('x_gt  :\n', x_gt)
+            print('x_pnp :\n', x)
         else:
             count_ok += 1
     print('ok :', count_ok, '\nko :', count_ko)
