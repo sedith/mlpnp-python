@@ -10,7 +10,7 @@ from math import sin, cos, acos, sqrt, pi
 ### RODRIGUES CONVERSIONS
 def rod2rot(rod):
     phi = np.linalg.norm(rod) % (pi*2)
-    if phi > 1e-4:
+    if phi > 1e-6:
         N = np.matrix([ [0.     , -rod[2,0],  rod[1,0] ],
                         [rod[2,0] , 0.     , -rod[0,0] ],
                         [-rod[1,0], rod[0,0] , 0.      ] ])
@@ -549,7 +549,6 @@ if __name__ == '__main__':
             print('x_gt  :\n', x_gt)
             print('x_pnp :\n', x)
             print('x_gn  :\n', x_gn)
-            print(x_gt-x, '\n',npl.norm(x_gt-x))
         if npl.norm(x_gt-x) > 0.1:
             count_ko += 1
             print('x_gt  :\n', x_gt)
