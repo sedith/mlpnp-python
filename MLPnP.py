@@ -486,79 +486,74 @@ def mlpnp(pts, v, cov = None ):
     return np.around(x,10)
 
 
-### FUNCTIONS
-# Convert pixel coordinate points into rays (unitary bearing vectors)
-# K : 3 by 3 camera matrix
-# pix : each collumn of the matrix is a pixel to transform into ray
-def pix2rays(K, pix, noise = True):
-    assert K.shape == (3,3)
-    assert pix.shape[0] == 2 or pix.shape[0] == 3
-    if pix.shape[0] == 2:
-        pix = np.concatenate((pix,np.ones((pix.shape[1],1)).transpose()), axis = 0)
-    rays = npl.inv(K)*pix
-    rays[0,:] = -rays[0,:] # invert x coordinate because U (in image plane) is along -X (world frame)
-    # print('before :\n', rays) ### DEBUG
-    noises =  np.random.normal(0,0.1,rays.shape)
-    # print('noise  :\n', noises) ### DEBUG
-    if noise: rays += noises # add gaussian noise
-    # print('after  :\n', rays) ### DEBUG
-    rays /= np.matrix(npl.norm(rays,axis = 0))
-    return rays
-
-
-
 ### MAIN
-print('^_^ My name is MLPnP.py ^_^ \n')
+if __name__ == '__main__':
+    # Convert pixel coordinate points into rays (unitary bearing vectors)
+    # K : 3 by 3 camera matrix
+    # pix : each collumn of the matrix is a pixel to transform into ray
+    def pix2rays(K, pix):
+        assert K.shape == (3,3)
+        assert pix.shape[0] == 2 or pix.shape[0] == 3
+        if pix.shape[0] == 2:
+            pix = np.concatenate((pix,np.ones((pix.shape[1],1)).transpose()), axis = 0)
+        rays = npl.inv(K)*pix
+        rays[0,:] = -rays[0,:] # invert x coordinate because U (in image plane) is along -X (world frame)
+        rays /= np.matrix(npl.norm(rays,axis = 0))
+        return rays
 
-# Intrinsics matrix
-K = np.matrix('640 1 320 ; 0 480 240 ; 0 0 1')
+    print('^_^ My name is MLPnP.py ^_^ \n')
 
-count_ok = 0
-count_ko = 0
-nb_iter = 10000
-for i in range(nb_iter):
-    # Ground truth transformation from world to camera
-    # phi = 868    % (2*pi)) - pi
-    # axis = np.matrix('7 19 -128').transpose()
-    # trans = np.matrix('9 8 -89').transpose()
-    phi = random.uniform(-pi, pi)
-    axis = np.matrix(np.random.random((3,1)))
-    trans = np.matrix(np.random.random((3,1)))
+    # Intrinsics matrix
+    K = np.matrix('640 1 320 ; 0 480 240 ; 0 0 1')
 
-    rod = phi*axis/npl.norm(axis)
-    # print(np.around(rod2rot(rod),2)) ### DEBUG
+    nb_iter = 100
+    display = False
 
-    x_gt = np.concatenate((rod,trans), axis = 0)
+    count_ok = 0
+    count_ko = 0
+    for i in range(nb_iter):
+        # Ground truth transformation from cam to world
+        # phi = pi/2
+        # axis = np.matrix('0 1 1').transpose()
+        # trans = np.matrix('-1 -1 10').transpose()
+        phi = random.uniform(-pi, pi)
+        axis = np.matrix(np.random.random((3,1)))
+        trans = np.matrix(np.random.random((3,1)))
 
-    nb_pts = 50 # Number of points to generate
-    # Sample random points in image space
-    pix = np.matrix(np.concatenate((np.random.randint(0,640,(1,nb_pts)),
-                                    np.random.randint(0,480,(1,nb_pts))), axis = 0), dtype=float)
+        rod = phi*axis/npl.norm(axis)
+        # print(np.around(rod2rot(rod),2)) ### DEBUG
 
-    # Convert those pixels to rays
-    rays = pix2rays(K,pix)
+        x_gt = np.concatenate((rod,trans), axis = 0)
 
-    # Sample random distances for world coordinates
-    norms = np.random.uniform(2,8,(nb_pts))
+        nb_pts = 50 # Number of points to generate
+        # Sample random points in image space
+        pix = np.matrix(np.concatenate((np.random.randint(0,640,(1,nb_pts)),
+                                        np.random.randint(0,480,(1,nb_pts))), axis = 0), dtype=float)
 
-    # Compute 3D points positions in camera coordinates
-    cam_pts = rays * np.diag(norms)
+        # Convert those pixels to rays adding gaussian noise
+        rays = pix2rays(K,pix)
 
-    # Convert to world coordinates
-    world_pts = rod2rot(x_gt[0:3])*cam_pts + np.repeat(x_gt[3:6],nb_pts,axis = 1)
+        # Sample random distances for world coordinates
+        norms = np.random.uniform(2,8,(nb_pts))
 
-    # Apply PnP
-    # print('gt :\n', x_gt)
-    x = mlpnp(world_pts, rays)
-    if npl.norm(x_gt-x) > 0.1:
-        count_ko += 1
-        print('x_gt  :\n', x_gt)
-        print('x_out :\n', x)
-    else:
-        count_ok += 1
-print('ok :', count_ok, '\nko :', count_ko)
-    # print('out:\n', x)
+        # Compute 3D points positions in camera coordinates
+        cam_pts = rays * np.diag(norms)
+        noise_sd = 0.01
+        cam_pts += np.random.normal(0,noise_sd,cam_pts.shape)
 
+        # Convert to world coordinates
+        world_pts = rod2rot(x_gt[0:3]) @ cam_pts + np.repeat(x_gt[3:6],nb_pts,axis = 1)
+
+        # Apply PnP
+        x = mlpnp(world_pts, rays)
+        if display:
+            print('x_gt  :\n', x_gt)
+            print('x_out :\n', x)
+        if npl.norm(x_gt-x) > 0.1:
+            count_ko += 1
+        else:
+            count_ok += 1
+    print('ok :', count_ok, '\nko :', count_ko)
 
 # pts = np.matrix(np.random.rand(3,nb_pts))
 # cov = np.random.rand(9,nb_pts)
