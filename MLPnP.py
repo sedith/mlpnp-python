@@ -9,8 +9,8 @@ from math import sin, cos, acos, sqrt, pi
 
 ### RODRIGUES CONVERSIONS
 def rod2rot(rod):
-    phi = np.linalg.norm(rod) % (pi*2)
-    if phi > 1e-6:
+    phi = np.linalg.norm(rod) % (2*pi)
+    if phi > np.finfo(float).eps:
         N = np.matrix([ [0.     , -rod[2,0],  rod[1,0] ],
                         [rod[2,0] , 0.     , -rod[0,0] ],
                         [-rod[1,0], rod[0,0] , 0.      ] ])
@@ -21,14 +21,16 @@ def rod2rot(rod):
 
 def rot2rod(rot):
     N = [0,0,0]
-    cosphi = max(min((np.trace(rot)-1)/2,1),-1)
-    phi = acos(cosphi)
+    phi = acos(max(min((np.trace(rot)-1)/2,1),-1))  # ensure that cos is in [-1,1] after rounds
     if phi > np.finfo(float).eps:
         sc = 1 / (2*sin(phi))
         N[0] = (rot[2,1] - rot[1,2])*sc
         N[1] = (rot[0,2] - rot[2,0])*sc
         N[2] = (rot[1,0] - rot[0,1])*sc
     N = np.matrix(N)/npl.norm(N)*phi
+    # Design choice : bearing vector is along +Z (facing camera)
+    # This is mainly done to reduce edge effets when phi = pi
+    if N[0,2] < 0: N = -1*N
     return N.transpose() #np.around(N,6)
 
 
@@ -52,7 +54,6 @@ def jacobian(pt, nullspace_r, nullspace_s, rot, trans):
     w1 = rot[0,0]
     w2 = rot[1,0]
     w3 = rot[2,0]
-    print(w1,w2,w3)
     t1 = trans[0]
     t2 = trans[1]
     t3 = trans[2]
@@ -473,7 +474,7 @@ def mlpnp(pts, v, cov = None):
 
     # Refine with Gauss Newton
     x_gn = [0]
-    # x_gn = refine_gauss_newton(x, pts, nullspace_r, nullspace_s, P, use_cov)
+    x_gn = refine_gauss_newton(x, pts, nullspace_r, nullspace_s, P, use_cov)
 
     return np.around(x,10), np.around(x_gn,10)
 
@@ -512,11 +513,11 @@ if __name__ == '__main__':
     for i in range(nb_iter):
         # Ground truth transformation from cam to world
         if randomize:
-            phi = random.uniform(-pi, pi)
+            phi = random.uniform(0, 2*pi)
             axis = np.matrix(np.random.random((3,1)))
             trans = np.matrix(np.random.random((3,1)))
         else:
-            phi = pi
+            phi = pi  % (2*pi)
             axis = np.matrix('0 0 1').transpose()
             trans = np.matrix('0 0 -1').transpose()
 
