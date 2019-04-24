@@ -1,21 +1,22 @@
 ### IMPORTS
 import numpy as np
 import numpy.linalg as npl
+import random
 from scipy.linalg import null_space
 import math
-from math import sin, cos, acos, sqrt, fabs
+from math import sin, cos, acos, sqrt, fabs, pi
 
 
 ### RODRIGUES CONVERSIONS
 def rod2rot(rod):
     phi = np.linalg.norm(rod)
     if phi > 0:
-        N = np.matrix([ [0.           , -rod[2],  rod[1] ],
-                            [rod[2] , 0.           , -rod[0] ],
-                            [-rod[1], rod[0] , 0.          ] ])
+        N = np.matrix([ [0.     , -rod[2,0],  rod[1,0] ],
+                        [rod[2,0] , 0.     , -rod[0,0] ],
+                        [-rod[1,0], rod[0,0] , 0.      ] ])
         N = N / phi
         rot = np.identity(3) + (1-cos(phi))*(N**2) + sin(phi)*N
-    else: rot = np.identity(3)
+    else: rot = np.matrix(np.identity(3))
     return np.matrix(rot) #np.around(rot,6))
 
 def rot2rod(rot):
@@ -383,6 +384,7 @@ def mlpnp(pts, v, cov = None ):
 
     # Stochastic model
     P = np.identity(2*nb_pts)
+    # Design matrix
     A = np.zeros((2*nb_pts,12))
     for i in range(nb_pts):
         # Covariance
@@ -427,46 +429,55 @@ def mlpnp(pts, v, cov = None ):
     # N = AtPAx
     N = A.transpose().dot(P).dot(A)
     # SVD of N
-    _,D,VH = npl.svd(N)
-    V = VH.transpose()
+    _,_,V = npl.svd(A)
+    V = V.transpose()
     R_tmp = np.reshape(V[0:9,-1],(3,3))
     # SVD to find the best rotation matrix in the Frobenius sense
-    Ur,_,VHr = npl.svd(R_tmp)
+    Ur,_,VHr = npl.svd(R_tmp.transpose())
     R = Ur.dot(VHr)
     if npl.det(R) < 0: R = -1*R
     # Recover translation
     t = V[9:12,-1]
     t /= ( npl.norm(R_tmp[:,0],axis = 0)*npl.norm(R_tmp[:,1])*npl.norm(R_tmp[:,2]) )**(1./3)
-    t = npl.inv(R).dot(t)
+    t = R.dot(t)
 
     x =  np.matrix(np.concatenate((rot2rod(R),np.matrix(t).transpose())))
 
-    # Create transformation matrix
-    T1 = np.empty((4,4))
-    T1[0:3,0:3] = R
-    T1[0:3,3] = t
-    T1[3,:] = [0,0,0,1]
-    T2 = np.copy(T1)
-    T2[0:3,3] = -t
-    # T1 = np.matrix(npl.inv(T1))
-    # T2 = np.matrix(npl.inv(T2))
-    T1 = np.matrix(T1)
-    T2 = np.matrix(T2)
+    # Create transformation matrices to determine translation sign
+    transform_1 = np.empty((4,4))
+    transform_1[0:3,0:3] = R
+    transform_1[0:3,3] = t
+    transform_1[3,:] = [0,0,0,1]
+    transform_2 = np.copy(transform_1)
+    transform_2[0:3,3] = -t
+    transform_1 = np.matrix(transform_1)
+    transform_2 = np.matrix(transform_2)
+    transform_1_inv = npl.inv(transform_1)
+    transform_2_inv = npl.inv(transform_2)
 
     # find the best solution with 6 correspondences
     diff1 = 0
     diff2 = 0
-    for i in range(nb_pts):
-        pt4 = np.matrix([pts[0,i],pts[1,i],pts[2,i],1])
-        testres1 = T1 * pt4.transpose()
-        testres2 = T2 * pt4.transpose()
+    for i in range(6):
+        pt4 = np.matrix(np.concatenate((pts[:,i],np.matrix(1)), axis=0))
+        testres1 = transform_1_inv @ pt4
+        testres2 = transform_2_inv @ pt4
         testres1 = testres1[0:3] / npl.norm(testres1[0:3])
         testres2 = testres2[0:3] / npl.norm(testres2[0:3])
-        diff1 += 1-np.vdot(testres1, v[:,i].transpose())
-        diff2 += 1-np.vdot(testres2, v[:,i].transpose())
-    if diff1 < diff2: RT = T1[0:3,0:4]
-    else: RT = T2[0:3,0:4]
-    x = np.matrix(np.concatenate((rot2rod(RT[:,0:3]),RT[:,3])))
+        diff1 += 1-np.dot(testres1.transpose(), v[:,i])
+        diff2 += 1-np.dot(testres2.transpose(), v[:,i])
+        # print('')
+        # print('point       :', v[:,i].transpose())
+        # print('transform1  :', testres1.transpose())
+        # print('dot product :', diff1)
+        # print('transform2', testres2.transpose())
+        # print(diff1, diff2)
+        # input('')
+
+    if diff1 <= diff2: transform = transform_1[0:3,0:4]
+    else: transform = transform_2[0:3,0:4]
+
+    x = np.matrix(np.concatenate((rot2rod(transform[:,0:3]),transform[:,3])))
 
     # # Refine with Gauss Newton
     # print(x)
@@ -485,47 +496,69 @@ def pix2rays(K, pix, noise = True):
     if pix.shape[0] == 2:
         pix = np.concatenate((pix,np.ones((pix.shape[1],1)).transpose()), axis = 0)
     rays = npl.inv(K)*pix
-    rays /= np.matrix(npl.norm(rays,axis = 0))
     rays[0,:] = -rays[0,:] # invert x coordinate because U (in image plane) is along -X (world frame)
-    if noise: rays += np.random.normal(0,1,(3,6)) # add gaussian noise
+    # print('before :\n', rays) ### DEBUG
+    noises =  np.random.normal(0,0.1,rays.shape)
+    # print('noise  :\n', noises) ### DEBUG
+    if noise: rays += noises # add gaussian noise
+    # print('after  :\n', rays) ### DEBUG
+    rays /= np.matrix(npl.norm(rays,axis = 0))
     return rays
 
 
 
 ### MAIN
-print ('^_^ Helloworld ^_^ \n')
+print('^_^ My name is MLPnP.py ^_^ \n')
 
- # Intrinsics matrix
+# Intrinsics matrix
 K = np.matrix('640 1 320 ; 0 480 240 ; 0 0 1')
 
-# Ground truth transformation from world to camera
-phi = math.pi/2
-axis = np.matrix('0 0 1').transpose()
-trans = np.matrix('6 5 -10').transpose()
-x_gt = np.concatenate((phi*axis/npl.norm(axis),trans), axis = 0)
+count_ok = 0
+count_ko = 0
+nb_iter = 10000
+for i in range(nb_iter):
+    # Ground truth transformation from world to camera
+    # phi = 868    % (2*pi)) - pi
+    # axis = np.matrix('7 19 -128').transpose()
+    # trans = np.matrix('9 8 -89').transpose()
+    phi = random.uniform(-pi, pi)
+    axis = np.matrix(np.random.random((3,1)))
+    trans = np.matrix(np.random.random((3,1)))
 
-nb_pts = 6 # Number of points to generate
-# Sample random points in image space
-pix = np.matrix(np.concatenate((np.random.randint(0,640,(1,nb_pts)),
-                                np.random.randint(0,480,(1,nb_pts))), axis = 0), dtype=float)
+    rod = phi*axis/npl.norm(axis)
+    # print(np.around(rod2rot(rod),2)) ### DEBUG
 
-# Convert those pixels to rays
-rays = pix2rays(K,pix)
+    x_gt = np.concatenate((rod,trans), axis = 0)
 
-# Sample random distances for world coordinates
-norms = np.random.uniform(2,8,(nb_pts))
+    nb_pts = 50 # Number of points to generate
+    # Sample random points in image space
+    pix = np.matrix(np.concatenate((np.random.randint(0,640,(1,nb_pts)),
+                                    np.random.randint(0,480,(1,nb_pts))), axis = 0), dtype=float)
 
-# Compute 3D points positions in camera coordinates
-cam_pts = rays * np.diag(norms)
+    # Convert those pixels to rays
+    rays = pix2rays(K,pix)
 
-# Convert to world coordinates
-world_pts = rod2rot(x_gt[0:3])*cam_pts + np.repeat(x_gt[3:6],nb_pts,axis = 1)
+    # Sample random distances for world coordinates
+    norms = np.random.uniform(2,8,(nb_pts))
 
+    # Compute 3D points positions in camera coordinates
+    cam_pts = rays * np.diag(norms)
 
-# Apply PnP
-x = mlpnp(world_pts, rays)
-print (x_gt)
-print (x)
+    # Convert to world coordinates
+    world_pts = rod2rot(x_gt[0:3])*cam_pts + np.repeat(x_gt[3:6],nb_pts,axis = 1)
+
+    # Apply PnP
+    # print('gt :\n', x_gt)
+    x = mlpnp(world_pts, rays)
+    if npl.norm(x_gt-x) > 0.1:
+        count_ko += 1
+        print('x_gt  :\n', x_gt)
+        print('x_out :\n', x)
+    else:
+        count_ok += 1
+print('ok :', count_ok, '\nko :', count_ko)
+    # print('out:\n', x)
+
 
 # pts = np.matrix(np.random.rand(3,nb_pts))
 # cov = np.random.rand(9,nb_pts)
