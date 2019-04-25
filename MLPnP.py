@@ -5,7 +5,7 @@ import random
 from scipy.linalg import null_space
 import math
 from math import sin, cos, acos, sqrt, pi
-
+import time
 
 ### RODRIGUES CONVERSIONS
 def rod2rot(rod):
@@ -314,7 +314,7 @@ def residuals_and_jacs(pts, nullspace_r, nullspace_s, x):
     return jacobians, r
 
 # Gauss Newton optimization for MLPnP solution
-# Refine the 6D transformation x , from a set a points, the corresponding nullspaces, the covariance matrix Kll, and the initial guess for x
+# Refine the 6D transformation x, from a set a points, the corresponding nullspaces, the covariance matrix Kll, and the initial guess for x
 def refine_gauss_newton(x, pts, nullspace_r, nullspace_s, Kll, use_cov):
     nb_obs = pts.shape[1]
     nb_unknowns = 6
@@ -474,8 +474,10 @@ def mlpnp(pts, v, cov = None):
 
     # Refine with Gauss Newton
     x_gn = [0]
+    tic = time.time()
     x_gn = refine_gauss_newton(x, pts, nullspace_r, nullspace_s, P, use_cov)
-
+    tac = time.time()
+    print('gauss newton :',tac-tic)
     return np.around(x,10), np.around(x_gn,10)
 
 
@@ -493,7 +495,7 @@ if __name__ == '__main__':
         rays /= npl.norm(rays,axis = 0)
         return rays
 
-    print('^_^ My name is MLPnP.py ^_^ \n')
+    print("^_^ My name is MLPnP.py ^_^ \n")
 
     # Intrinsics matrix
     K = np.matrix('640 1 320 ; 0 480 240 ; 0 0 1')
@@ -544,16 +546,18 @@ if __name__ == '__main__':
         world_pts = rod2rot(x_gt[0:3]) @ cam_pts + np.repeat(x_gt[3:6],nb_pts, axis = 1)
 
         # Apply PnP
+        tic = time.time()
         x, x_gn = mlpnp(world_pts, rays)
-
+        tac = time.time()
+        print('overall :', tac-tic)
         if display:
             print('x_gt  :\n', x_gt)
             print('x_pnp :\n', x)
             print('x_gn  :\n', x_gn)
-        if npl.norm(x_gt-x) > 0.1:
+        if npl.norm(x_gt-x) > npl.norm(x_gt-x_gn):
             count_ko += 1
-            print('x_gt  :\n', x_gt)
-            print('x_pnp :\n', x)
+            # print('x_gt  :\n', x_gt)
+            # print('x_pnp :\n', x)
         else:
             count_ok += 1
     print('ok :', count_ok, '\nko :', count_ko)
