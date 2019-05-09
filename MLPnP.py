@@ -505,7 +505,7 @@ if __name__ == '__main__':
     for i in range(nb_iter):
         # Ground truth transformation from cam to world
         if randomize:
-            phi = random.uniform(pi-0.001, pi)
+            phi = random.uniform(-pi+0.001, pi-0.001)
             axis = np.matrix(np.random.random((3,1)))
             trans = np.matrix(np.random.random((3,1)))
         else:
