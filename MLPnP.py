@@ -9,7 +9,7 @@ import time
 
 ### RODRIGUES CONVERSIONS
 def rod2rot(rod):
-    phi = np.linalg.norm(rod) % (2*pi)
+    phi = ((np.linalg.norm(rod) +pi) % (2*pi)) - pi # ensure that phi is in [-pi,pi]
     if phi > np.finfo(float).eps:
         N = np.matrix([ [0.     , -rod[2,0],  rod[1,0] ],
                         [rod[2,0] , 0.     , -rod[0,0] ],
@@ -27,10 +27,8 @@ def rot2rod(rot):
         N[0] = (rot[2,1] - rot[1,2])*sc
         N[1] = (rot[0,2] - rot[2,0])*sc
         N[2] = (rot[1,0] - rot[0,1])*sc
-    N = np.matrix(N)/npl.norm(N)*phi
-    # Design choice : bearing vector is along +Z (facing camera)
-    # This is mainly done to reduce edge effets when phi = pi
-    if N[0,2] < 0: N = -1*N
+    norm = npl.norm(N)
+    N = np.matrix(N)/norm*phi
     return N.transpose() #np.around(N,6)
 
 
@@ -336,14 +334,14 @@ def refine_gauss_newton(x, pts, nullspace_r, nullspace_s, Kll, use_cov):
         if use_cov: JacTSKll = jacs.transpose().dot(Kll)
         else: JacTSKll = jacs.transpose()
         # Design matrix
-        N = JacTSKll.dot(jacs)
+        N = JacTSKll @ jacs
         # Get system
-        g = JacTSKll.dot(r)
+        g = JacTSKll @ r
 
         # Solve
         # chol = npl.cholesky(N)
         # dx = npl.solve(chol,g)
-        dx = npl.pinv(N).dot(g)
+        dx = npl.pinv(N) @ g
         if np.amax(np.absolute(np.asarray(dx))) > 5. or np.amin(np.absolute(np.asarray(dx))) > 1.: break
         dl = jacs.dot(dx)
 
@@ -429,7 +427,7 @@ def mlpnp(pts, v, cov = None):
         A[2*i+1,11] = nullspace_s[2,i]
 
     # N = AtPAx
-    N = A.transpose().dot(P).dot(A)
+    N = A.transpose() @ P @ A
     # SVD of N
     _,_,V = npl.svd(A)
     V = V.transpose()
@@ -474,10 +472,7 @@ def mlpnp(pts, v, cov = None):
 
     # Refine with Gauss Newton
     x_gn = [0]
-    tic = time.time()
-    x_gn = refine_gauss_newton(x, pts, nullspace_r, nullspace_s, P, use_cov)
-    tac = time.time()
-    print('gauss newton :',tac-tic)
+    # x_gn = refine_gauss_newton(x, pts, nullspace_r, nullspace_s, P, use_cov)
     return np.around(x,10), np.around(x_gn,10)
 
 
@@ -500,31 +495,27 @@ if __name__ == '__main__':
     # Intrinsics matrix
     K = np.matrix('640 1 320 ; 0 480 240 ; 0 0 1')
 
-    debug = True
-    if debug:
-        nb_iter = 1
-        display = True
-        randomize = False
-    else:
-        nb_iter = 500
-        display = False
-        randomize = True
+    nb_iter = 50000
+    display = False
+    randomize = True
 
     count_ok = 0
     count_ko = 0
+
     for i in range(nb_iter):
         # Ground truth transformation from cam to world
         if randomize:
-            phi = random.uniform(0, 2*pi)
+            phi = random.uniform(pi-0.001, pi)
             axis = np.matrix(np.random.random((3,1)))
             trans = np.matrix(np.random.random((3,1)))
         else:
-            phi = pi  % (2*pi)
+            phi = 1231
+            phi = (phi + pi)%2*pi - pi
             axis = np.matrix('0 0 1').transpose()
-            trans = np.matrix('0 0 -1').transpose()
+            trans = np.matrix('0 0 0').transpose()
 
-        rod = phi*axis/npl.norm(axis)
-        # print(np.around(rod2rot(rod),2)) ### DEBUG
+        axis = axis/npl.norm(axis)
+        rod = phi*axis
         x_gt = np.concatenate((rod,trans), axis = 0)
 
         nb_pts = 10 # Number of points to generate
@@ -549,15 +540,16 @@ if __name__ == '__main__':
         tic = time.time()
         x, x_gn = mlpnp(world_pts, rays)
         tac = time.time()
-        print('overall :', tac-tic)
         if display:
+            print('overall :', tac-tic)
             print('x_gt  :\n', x_gt)
             print('x_pnp :\n', x)
-            print('x_gn  :\n', x_gn)
-        if npl.norm(x_gt-x) > npl.norm(x_gt-x_gn):
+            print('error :', npl.norm(x_gt-x))
+            # print('x_gn :\n', x_gn)
+            # print('error :', npl.norm(x_gt-x_gn), '\n')
+
+        if npl.norm(x_gt-x) > 0.01:
             count_ko += 1
-            # print('x_gt  :\n', x_gt)
-            # print('x_pnp :\n', x)
         else:
             count_ok += 1
     print('ok :', count_ok, '\nko :', count_ko)
