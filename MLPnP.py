@@ -6,6 +6,7 @@ from scipy.linalg import null_space
 import math
 from math import sin, cos, acos, sqrt, pi
 import time
+import sympy as sp
 
 ### RODRIGUES CONVERSIONS
 def rod2rot(rod):
@@ -37,24 +38,24 @@ def rot2rod(rot):
 # Compute the jacobian associated to a rotation/translation in point pt
 def jacobian(pt, nullspace_r, nullspace_s, rot, trans):
     jac = np.zeros((2,6))
-    r1 = nullspace_r[0]
-    r2 = nullspace_r[1]
-    r3 = nullspace_r[2]
+    r1 = float(nullspace_r[0])
+    r2 = float(nullspace_r[1])
+    r3 = float(nullspace_r[2])
 
-    s1 = nullspace_s[0]
-    s2 = nullspace_s[1]
-    s3 = nullspace_s[2]
+    s1 = float(nullspace_s[0])
+    s2 = float(nullspace_s[1])
+    s3 = float(nullspace_s[2])
 
-    X1 = pt[0]
-    Y1 = pt[1]
-    Z1 = pt[2]
+    X1 = float(pt[0])
+    Y1 = float(pt[1])
+    Z1 = float(pt[2])
 
-    w1 = rot[0,0]
-    w2 = rot[1,0]
-    w3 = rot[2,0]
-    t1 = trans[0]
-    t2 = trans[1]
-    t3 = trans[2]
+    w1 = float(rot[0,0])
+    w2 = float(rot[1,0])
+    w3 = float(rot[2,0])
+    t1 = float(trans[0])
+    t2 = float(trans[1])
+    t3 = float(trans[2])
 
     t5 = w1*w1
     t6 = w2*w2
@@ -282,12 +283,25 @@ def jacobian(pt, nullspace_r, nullspace_s, rot, trans):
     jac[1, 4] = s2*t65-t14*t101*t167*t212*(1.0/2.0)
     jac[1, 5] = s3*t65-t14*t101*t167*t216*(1.0/2.0)
 
+    print('handmade :\n',jac)
+
+    x, y = sp.symbols('x,y', real=True)
+    J = Function('J')(x,y)
+    f1 = nullspace_r[0]
+    f2 = nullspace_r[1]
+    f3 = nullspace_r[2]
+    f4 = nullspace_s[0]
+    f5 = nullspace_s[1]
+    f6 = nullspace_s[2]
+
+
+
     return jac
 
 # Residuals and jacobians for all points
 # Compute the residuals and jacobians for a set of points, a transformation x and the corresponding nullspaces
-def residuals_and_jacs(pts, nullspace_r, nullspace_s, x):
-    nb_obs = pts.shape[1]
+def residuals_and_jacs(w_pts, nullspace_r, nullspace_s, x):
+    nb_obs = w_pts.shape[1]
     nb_unknowns = 6
     w = x[0:3]
     R = rod2rot(w)
@@ -298,23 +312,25 @@ def residuals_and_jacs(pts, nullspace_r, nullspace_s, x):
     jacobians = np.zeros((2*nb_obs,nb_unknowns))
 
     for i in range(nb_obs):
-        # pt = R*pts[i] + T
-        pt = R @ pts[:,i] + T
-        pt /= np.linalg.norm(pt)
-        # r = nullspace[i]^T * pt
-        r[ii  ,0] = nullspace_r[:,i] @ pt
-        r[ii+1,0] = nullspace_s[:,i] @ pt
+        # pi = R*w_pts[i] + T
+        pi = R @ w_pts[:,i] + T
+        pi /= np.linalg.norm(pi)
+        # [dr, ds]^T = J_v_r(pi) * pi
+        # r = nullspace[i]^T * pi
+        r[ii  ,0] = nullspace_r[:,i] @ pi
+        r[ii+1,0] = nullspace_s[:,i] @ pi
         # jacs
-        jac = jacobian(pts[:,i],nullspace_r[:,i], nullspace_s[:,i], w, T)
+        jac = jacobian(w_pts[:,i],nullspace_r[:,i], nullspace_s[:,i], w, T)
+
         jacobians[ii  ,:] = jac[0,:]
         jacobians[ii+1,:] = jac[1,:]
         ii += 2
     return jacobians, r
 
 # Gauss Newton optimization for MLPnP solution
-# Refine the 6D transformation x, from a set a points, the corresponding nullspaces, the covariance matrix Kll, and the initial guess for x
-def refine_gauss_newton(x, pts, nullspace_r, nullspace_s, Kll, use_cov):
-    nb_obs = pts.shape[1]
+# Refine the 6D transformation x, from a set a points, the corresponding nullspaces, the covariance matrix P, and the initial guess for x
+def refine_gauss_newton(x, w_pts, nullspace_r, nullspace_s, P, use_cov):
+    nb_obs = w_pts.shape[1]
     nb_unknowns = 6
     assert ((2 * nb_obs - 6) > 0)
 
@@ -330,20 +346,20 @@ def refine_gauss_newton(x, pts, nullspace_r, nullspace_s, Kll, use_cov):
     eps = 1e-6
 
     while iter < max_it and not stop:
-        jacs, r = residuals_and_jacs(pts, nullspace_r, nullspace_s, x)
-        if use_cov: JacTSKll = jacs.transpose().dot(Kll)
-        else: JacTSKll = jacs.transpose()
+        jacs, r = residuals_and_jacs(w_pts, nullspace_r, nullspace_s, x)
+        if use_cov: JacTP = jacs.transpose() @ P
+        else: JacTP = jacs.transpose()
         # Design matrix
-        N = JacTSKll @ jacs
+        N = JacTP @ jacs
         # Get system
-        g = JacTSKll @ r
+        g = JacTP @ r
 
         # Solve
         # chol = npl.cholesky(N)
         # dx = npl.solve(chol,g)
         dx = npl.pinv(N) @ g
         if np.amax(np.absolute(np.asarray(dx))) > 5. or np.amin(np.absolute(np.asarray(dx))) > 1.: break
-        dl = jacs.dot(dx)
+        dl = jacs @ dx
 
         # Update transformation vector
         if np.amax(np.absolute(np.asarray(dl))) < eps:
@@ -354,20 +370,20 @@ def refine_gauss_newton(x, pts, nullspace_r, nullspace_s, Kll, use_cov):
             x = x - dx
         iter += 1
 
-    # Statistics
-    Qxx = npl.inv(N)
-    Qldld = jacs.dot(Qxx).dot(jacs.transpose())
+    # # Statistics
+    # Qxx = npl.inv(N)
+    # Qldld = jacs.dot(Qxx).dot(jacs.transpose())
     return x
 
 
 ### MLPNP
-# Estimate 4x4 transform matrix (object to camera) from a set of N 3D points (in the object coordinate system),
+# Estimate 4x4 transform matrix (object to camera) from a set of N 3D points (in the world coordinate system),
 # and the corresponding bearing vectors (image rays) and its covariance matrix (size 9*N) if available
-def mlpnp(pts, v, cov = None):
-    assert pts.shape[1] > 5
+def mlpnp(w_pts, v, cov = None):
+    assert w_pts.shape[1] > 5
     use_cov = (cov is not None)
     # Definitions
-    nb_pts = pts.shape[1]
+    nb_pts = w_pts.shape[1]
     nullspace_r = np.zeros((3,nb_pts))
     nullspace_s = np.zeros((3,nb_pts))
     cov_reduced = np.zeros((2,2,nb_pts))
@@ -380,7 +396,7 @@ def mlpnp(pts, v, cov = None):
         nullspace_r[:,i] = null_2d[:,0]
         nullspace_s[:,i] = null_2d[:,1]
         if use_cov:
-            cov_reduced[:,:,i] = npl.inv(null_2d.transpose().dot(np.reshape(cov[:,i],(3,3)).dot(null_2d)))
+            cov_reduced[:,:,i] = npl.inv(null_2d.transpose() @ np.reshape(cov[:,i],(3,3)) @ null_2d)
 
     # Stochastic model
     P = np.identity(2*nb_pts)
@@ -390,32 +406,32 @@ def mlpnp(pts, v, cov = None):
         # Covariance
         if use_cov: P[2*i:2*(i+1),2*i:2*(i+1)] = cov_reduced[:,:,i]
         # r11
-        A[2*i  , 0] = nullspace_r[0,i] * pts[0,i]
-        A[2*i+1, 0] = nullspace_s[0,i] * pts[0,i]
+        A[2*i  , 0] = nullspace_r[0,i] * w_pts[0,i]
+        A[2*i+1, 0] = nullspace_s[0,i] * w_pts[0,i]
         # r12
-        A[2*i  , 1] = nullspace_r[0,i] * pts[1,i]
-        A[2*i+1, 1] = nullspace_s[0,i] * pts[1,i]
+        A[2*i  , 1] = nullspace_r[0,i] * w_pts[1,i]
+        A[2*i+1, 1] = nullspace_s[0,i] * w_pts[1,i]
         # r13
-        A[2*i  , 2] = nullspace_r[0,i] * pts[2,i]
-        A[2*i+1, 2] = nullspace_s[0,i] * pts[2,i]
+        A[2*i  , 2] = nullspace_r[0,i] * w_pts[2,i]
+        A[2*i+1, 2] = nullspace_s[0,i] * w_pts[2,i]
         # r21
-        A[2*i  , 3] = nullspace_r[1,i] * pts[0,i]
-        A[2*i+1, 3] = nullspace_s[1,i] * pts[0,i]
+        A[2*i  , 3] = nullspace_r[1,i] * w_pts[0,i]
+        A[2*i+1, 3] = nullspace_s[1,i] * w_pts[0,i]
         # r22
-        A[2*i  , 4] = nullspace_r[1,i] * pts[1,i]
-        A[2*i+1, 4] = nullspace_s[1,i] * pts[1,i]
+        A[2*i  , 4] = nullspace_r[1,i] * w_pts[1,i]
+        A[2*i+1, 4] = nullspace_s[1,i] * w_pts[1,i]
         # r23
-        A[2*i  , 5] = nullspace_r[1,i] * pts[2,i]
-        A[2*i+1, 5] = nullspace_s[1,i] * pts[2,i]
+        A[2*i  , 5] = nullspace_r[1,i] * w_pts[2,i]
+        A[2*i+1, 5] = nullspace_s[1,i] * w_pts[2,i]
         # r31
-        A[2*i  , 6] = nullspace_r[2,i] * pts[0,i]
-        A[2*i+1, 6] = nullspace_s[2,i] * pts[0,i]
+        A[2*i  , 6] = nullspace_r[2,i] * w_pts[0,i]
+        A[2*i+1, 6] = nullspace_s[2,i] * w_pts[0,i]
         # r32
-        A[2*i  , 7] = nullspace_r[2,i] * pts[1,i]
-        A[2*i+1, 7] = nullspace_s[2,i] * pts[1,i]
+        A[2*i  , 7] = nullspace_r[2,i] * w_pts[1,i]
+        A[2*i+1, 7] = nullspace_s[2,i] * w_pts[1,i]
         # r33
-        A[2*i  , 8] = nullspace_r[2,i] * pts[2,i]
-        A[2*i+1, 8] = nullspace_s[2,i] * pts[2,i]
+        A[2*i  , 8] = nullspace_r[2,i] * w_pts[2,i]
+        A[2*i+1, 8] = nullspace_s[2,i] * w_pts[2,i]
         # t1
         A[2*i  , 9] = nullspace_r[0,i]
         A[2*i+1, 9] = nullspace_s[0,i]
@@ -439,7 +455,7 @@ def mlpnp(pts, v, cov = None):
     # Recover translation
     t = V[9:12,-1]
     t /= ( npl.norm(R_tmp[:,0],axis = 0)*npl.norm(R_tmp[:,1])*npl.norm(R_tmp[:,2]) )**(1./3)
-    t = R.dot(t)
+    t = R @ t
 
     # Create transformation matrices to determine translation sign
     transform_1 = np.empty((4,4))
@@ -457,7 +473,7 @@ def mlpnp(pts, v, cov = None):
     diff1 = 0
     diff2 = 0
     for i in range(6):
-        pt4 = np.concatenate((pts[:,i],np.matrix(1)), axis=0)
+        pt4 = np.concatenate((w_pts[:,i],np.matrix(1)), axis=0)
         testres1 = transform_1_inv @ pt4
         testres2 = transform_2_inv @ pt4
         testres1 = testres1[0:3] / npl.norm(testres1[0:3])
@@ -472,7 +488,7 @@ def mlpnp(pts, v, cov = None):
 
     # Refine with Gauss Newton
     x_gn = [0]
-    # x_gn = refine_gauss_newton(x, pts, nullspace_r, nullspace_s, P, use_cov)
+    # x_gn = refine_gauss_newton(x, w_pts, nullspace_r, nullspace_s, P, use_cov)
     return np.around(x,10), np.around(x_gn,10)
 
 
@@ -495,9 +511,9 @@ if __name__ == '__main__':
     # Intrinsics matrix
     K = np.matrix('640 1 320 ; 0 480 240 ; 0 0 1')
 
-    nb_iter = 50000
+    nb_iter = 500
     display = False
-    randomize = True
+    randomize = False
 
     count_ok = 0
     count_ko = 0
@@ -509,7 +525,7 @@ if __name__ == '__main__':
             axis = np.matrix(np.random.random((3,1)))
             trans = np.matrix(np.random.random((3,1)))
         else:
-            phi = 1231
+            phi = 1530
             phi = (phi + pi)%2*pi - pi
             axis = np.matrix('0 0 1').transpose()
             trans = np.matrix('0 0 0').transpose()
@@ -521,38 +537,43 @@ if __name__ == '__main__':
         nb_pts = 10 # Number of points to generate
         # Sample random points in image space
         pix = np.concatenate((np.random.randint(0,640,(1,nb_pts)), np.random.randint(0,480,(1,nb_pts))), axis = 0)
-        # Convert those pixels to rays adding gaussian noise
-        rays = pix2rays(K,pix)
+        # Convert those pixels to rays
+        # v_i from paper
+        obs_rays = pix2rays(K,pix)
 
         # Sample random distances for world coordinates
+        # lambda_i from paper
         min_dist = 2
         max_dist = 10
-        norms = np.random.uniform(min_dist,max_dist,(nb_pts))
+        depths = np.random.uniform(min_dist,max_dist,(nb_pts))
 
         # Compute 3D points positions in camera coordinates
         noise_sd = 0.001
-        cam_pts = rays * np.diag(norms) + np.random.normal(0,noise_sd,rays.shape)
+        cam_pts = obs_rays * np.diag(depths) + np.random.normal(0,noise_sd,obs_rays.shape)
 
         # Convert to world coordinates
         world_pts = rod2rot(x_gt[0:3]) @ cam_pts + np.repeat(x_gt[3:6],nb_pts, axis = 1)
 
+        # Generate random covariance
+        cov = np.random.rand(9,nb_pts)
+
         # Apply PnP
         tic = time.time()
-        x, x_gn = mlpnp(world_pts, rays)
+        x, x_gn = mlpnp(world_pts, obs_rays)
+        # x, x_gn = mlpnp(world_pts, obs_rays, cov)
         tac = time.time()
         if display:
             print('overall :', tac-tic)
             print('x_gt  :\n', x_gt)
             print('x_pnp :\n', x)
             print('error :', npl.norm(x_gt-x))
-            # print('x_gn :\n', x_gn)
-            # print('error :', npl.norm(x_gt-x_gn), '\n')
+            print('x_gn :\n', x_gn)
+            print('error :', npl.norm(x_gt-x_gn), '\n')
 
-        if npl.norm(x_gt-x) > 0.01:
+        if npl.norm(x_gt-x) > 0.1:#< npl.norm(x_gt-x_gn):
             count_ko += 1
         else:
             count_ok += 1
     print('ok :', count_ok, '\nko :', count_ko)
 
 # pts = np.matrix(np.random.rand(3,nb_pts))
-# cov = np.random.rand(9,nb_pts)
