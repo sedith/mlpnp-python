@@ -453,38 +453,24 @@ def mlpnp(w_pts, v, cov = None):
     R = Ur.dot(VHr)
     if npl.det(R) < 0: R = -1*R
     # Recover translation
-    t = V[9:12,-1]
+    t = np.matrix(V[9:12,-1]).transpose()
     t /= ( npl.norm(R_tmp[:,0],axis = 0)*npl.norm(R_tmp[:,1])*npl.norm(R_tmp[:,2]) )**(1./3)
     t = R @ t
-
-    # Create transformation matrices to determine translation sign
-    transform_1 = np.empty((4,4))
-    transform_1[0:3,0:3] = R
-    transform_1[0:3,3] = t
-    transform_1[3,:] = [0,0,0,1]
-    transform_2 = np.copy(transform_1)
-    transform_2[0:3,3] = -t
-    transform_1 = np.matrix(transform_1)
-    transform_2 = np.matrix(transform_2)
-    transform_1_inv = npl.inv(transform_1)
-    transform_2_inv = npl.inv(transform_2)
 
     # Find the best solution with 6 correspondences
     diff1 = 0
     diff2 = 0
     for i in range(6):
-        pt4 = np.concatenate((w_pts[:,i],np.matrix(1)), axis=0)
-        testres1 = transform_1_inv @ pt4
-        testres2 = transform_2_inv @ pt4
-        testres1 = testres1[0:3] / npl.norm(testres1[0:3])
-        testres2 = testres2[0:3] / npl.norm(testres2[0:3])
+        testres1 = npl.inv(R) @ (w_pts[:,i] - t)
+        testres2 = npl.inv(R) @ (w_pts[:,i] + t)
+        testres1 = testres1 / npl.norm(testres1)
+        testres2 = testres2 / npl.norm(testres2)
         diff1 += 1-np.dot(testres1.transpose(), v[:,i])
         diff2 += 1-np.dot(testres2.transpose(), v[:,i])
+    if diff1 <= diff2:  trans = t
+    else:               trans = -t
 
-    if diff1 <= diff2: transform = transform_1[0:3,0:4]
-    else: transform = transform_2[0:3,0:4]
-
-    x = np.matrix(np.concatenate((rot2rod(transform[:,0:3]),transform[:,3])))
+    x = np.matrix(np.concatenate((rot2rod(R),trans)))
 
     # Refine with Gauss Newton
     x_gn = [0]
@@ -509,8 +495,8 @@ if __name__ == '__main__':
     # Intrinsics matrix
     K = np.matrix('640 1 320 ; 0 480 240 ; 0 0 1')
 
-    nb_iter = 500
-    display = True
+    nb_iter = 1000
+    display = False
     randomize = True
 
     count_ok = 0
@@ -525,8 +511,9 @@ if __name__ == '__main__':
         else:
             phi = 1530
             phi = (phi + pi)%2*pi - pi
-            axis = np.matrix('0 0 1').transpose()
-            trans = np.matrix('0 0 0').transpose()
+            phi = 1
+            axis = np.matrix('-1.818 -0.237 -2.086').transpose()
+            trans = np.matrix('0.949 0.654 0.176').transpose()
 
         axis = axis/npl.norm(axis)
         rod = phi*axis
@@ -569,7 +556,7 @@ if __name__ == '__main__':
             # print('x_gn :\n', x_gn)
             # print('error :', npl.norm(x_gt-x_gn), '\n')
 
-        if npl.norm(x_gt-x) > 0.01: # < npl.norm(x_gt-x_gn):
+        if npl.norm(x_gt-x) > 0.1: # < npl.norm(x_gt-x_gn):
             count_ko += 1
         else:
             count_ok += 1
