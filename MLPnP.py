@@ -377,7 +377,7 @@ def refine_gauss_newton(x, w_pts, nullspace_r, nullspace_s, P, use_cov):
 
 
 ### MLPNP
-# Estimate 4x4 transform matrix (object to camera) from a set of N 3D points (in the world coordinate system),
+# Estimate 4x4 transform matrix (world to camera) from a set of N 3D points (in the world coordinate system),
 # and the corresponding bearing vectors (image rays) and its covariance matrix (size 9*N) if available
 def mlpnp(w_pts, v, cov = None):
     assert w_pts.shape[1] > 5
@@ -469,7 +469,7 @@ def mlpnp(w_pts, v, cov = None):
     transform_1_inv = npl.inv(transform_1)
     transform_2_inv = npl.inv(transform_2)
 
-    # find the best solution with 6 correspondences
+    # Find the best solution with 6 correspondences
     diff1 = 0
     diff2 = 0
     for i in range(6):
@@ -506,14 +506,12 @@ if __name__ == '__main__':
         rays /= npl.norm(rays,axis = 0)
         return rays
 
-    print("^_^ My name is MLPnP.py ^_^ \n")
-
     # Intrinsics matrix
     K = np.matrix('640 1 320 ; 0 480 240 ; 0 0 1')
 
     nb_iter = 500
-    display = False
-    randomize = False
+    display = True
+    randomize = True
 
     count_ok = 0
     count_ko = 0
@@ -548,11 +546,11 @@ if __name__ == '__main__':
         depths = np.random.uniform(min_dist,max_dist,(nb_pts))
 
         # Compute 3D points positions in camera coordinates
-        noise_sd = 0.001
-        cam_pts = obs_rays * np.diag(depths) + np.random.normal(0,noise_sd,obs_rays.shape)
+        noise_sd = 0.0001
+        cam_pts = obs_rays * np.diag(depths)
 
         # Convert to world coordinates
-        world_pts = rod2rot(x_gt[0:3]) @ cam_pts + np.repeat(x_gt[3:6],nb_pts, axis = 1)
+        world_pts = rod2rot(x_gt[0:3]) @ cam_pts + np.repeat(x_gt[3:6],nb_pts, axis = 1) + np.random.normal(0,noise_sd,obs_rays.shape)
 
         # Generate random covariance
         cov = np.random.rand(9,nb_pts)
@@ -563,17 +561,19 @@ if __name__ == '__main__':
         # x, x_gn = mlpnp(world_pts, obs_rays, cov)
         tac = time.time()
         if display:
-            print('overall :', tac-tic)
+            # print('overall :', tac-tic)
             print('x_gt  :\n', x_gt)
             print('x_pnp :\n', x)
             print('error :', npl.norm(x_gt-x))
-            print('x_gn :\n', x_gn)
-            print('error :', npl.norm(x_gt-x_gn), '\n')
+            print()
+            # print('x_gn :\n', x_gn)
+            # print('error :', npl.norm(x_gt-x_gn), '\n')
 
-        if npl.norm(x_gt-x) > 0.1:#< npl.norm(x_gt-x_gn):
+        if npl.norm(x_gt-x) > 0.01: # < npl.norm(x_gt-x_gn):
             count_ko += 1
         else:
             count_ok += 1
-    print('ok :', count_ok, '\nko :', count_ko)
+    if nb_iter != 1:
+        print('ok :', count_ok, '\nko :', count_ko)
 
 # pts = np.matrix(np.random.rand(3,nb_pts))
