@@ -35,7 +35,7 @@ def rot2rod(rot):
 
 ### MLPNP REFINING
 # MLPnP Jacobian
-# Compute the jacobian associated to a rotation/translation in point pt
+# Compute the jacobian in point pt of the residual function (eq.10 in paper)
 def jacobian(pt, nullspace_r, nullspace_s, rot, trans):
     jac = np.zeros((2,6))
     r1 = float(nullspace_r[0])
@@ -285,8 +285,8 @@ def jacobian(pt, nullspace_r, nullspace_s, rot, trans):
 
     print('handmade :\n',jac)
 
-    x, y = sp.symbols('x,y', real=True)
-    J = Function('J')(x,y)
+    r1,r2,r3,t1,t2,t3 = sp.symbols('r1,r2,r3,t1,t2,t3', real=True)
+    J = Function('J')(r1,r2,r3,t1,t2,t3)
     f1 = nullspace_r[0]
     f2 = nullspace_r[1]
     f3 = nullspace_r[2]
@@ -300,7 +300,7 @@ def jacobian(pt, nullspace_r, nullspace_s, rot, trans):
 
 # Residuals and jacobians for all points
 # Compute the residuals and jacobians for a set of points, a transformation x and the corresponding nullspaces
-def residuals_and_jacs(w_pts, nullspace_r, nullspace_s, x):
+def residuals_and_jacobians(w_pts, nullspace_r, nullspace_s, x):
     nb_obs = w_pts.shape[1]
     nb_unknowns = 6
     w = x[0:3]
@@ -346,7 +346,7 @@ def refine_gauss_newton(x, w_pts, nullspace_r, nullspace_s, P, use_cov):
     eps = 1e-6
 
     while iter < max_it and not stop:
-        jacs, r = residuals_and_jacs(w_pts, nullspace_r, nullspace_s, x)
+        jacs, r = residuals_and_jacobians(w_pts, nullspace_r, nullspace_s, x)
         if use_cov: JacTP = jacs.transpose() @ P
         else: JacTP = jacs.transpose()
         # Design matrix
@@ -452,6 +452,7 @@ def mlpnp(w_pts, v, cov = None):
     Ur,_,VHr = npl.svd(R_tmp.transpose())
     R = Ur.dot(VHr)
     if npl.det(R) < 0: R = -1*R
+    R_inv = npl.inv(R)
     # Recover translation
     t = np.matrix(V[9:12,-1]).transpose()
     t /= ( npl.norm(R_tmp[:,0],axis = 0)*npl.norm(R_tmp[:,1])*npl.norm(R_tmp[:,2]) )**(1./3)
@@ -460,17 +461,28 @@ def mlpnp(w_pts, v, cov = None):
     # Find the best solution with 6 correspondences
     diff1 = 0
     diff2 = 0
+    # for i in range(6):
+    #     testres1 = npl.inv(R) @ (w_pts[:,i] - t)
+    #     testres2 = npl.inv(R) @ (w_pts[:,i] + t)
+    #     testres1 = testres1 / npl.norm(testres1)
+    #     testres2 = testres2 / npl.norm(testres2)
+    #     diff1 += 1-np.dot(testres1.transpose(), v[:,i])
+    #     diff2 += 1-np.dot(testres2.transpose(), v[:,i])
+    # if diff1 <= diff2:  trans = t
+    # else:               trans = -t
+    #
+    # x = np.matrix(np.concatenate((rot2rod(R),trans)))
     for i in range(6):
-        testres1 = npl.inv(R) @ (w_pts[:,i] - t)
-        testres2 = npl.inv(R) @ (w_pts[:,i] + t)
+        testres1 = R_inv @ (w_pts[:,i] - t)
+        testres2 = R_inv @ (w_pts[:,i] + t)
         testres1 = testres1 / npl.norm(testres1)
         testres2 = testres2 / npl.norm(testres2)
         diff1 += 1-np.dot(testres1.transpose(), v[:,i])
         diff2 += 1-np.dot(testres2.transpose(), v[:,i])
-    if diff1 <= diff2:  trans = t
-    else:               trans = -t
+    if diff1 <= diff2:  trans = -R_inv @ t
+    else:               trans =  R_inv @ t
 
-    x = np.matrix(np.concatenate((rot2rod(R),trans)))
+    x = np.matrix(np.concatenate((rot2rod(R_inv),trans)))
 
     # Refine with Gauss Newton
     x_gn = [0]
@@ -495,19 +507,19 @@ if __name__ == '__main__':
     # Intrinsics matrix
     K = np.matrix('640 1 320 ; 0 480 240 ; 0 0 1')
 
-    nb_iter = 1000
-    display = False
+    nb_iter = 1
+    display = True
     randomize = True
 
     count_ok = 0
     count_ko = 0
 
     for i in range(nb_iter):
-        # Ground truth transformation from cam to world
+        # Ground truth transformation from world to cam
         if randomize:
             phi = random.uniform(-pi+0.001, pi-0.001)
             axis = np.matrix(np.random.random((3,1)))
-            trans = np.matrix(np.random.random((3,1)))
+            trans = np.matrix(np.random.random((3,1)) * random.uniform(1,10)) 
         else:
             phi = 1530
             phi = (phi + pi)%2*pi - pi
@@ -518,7 +530,6 @@ if __name__ == '__main__':
         axis = axis/npl.norm(axis)
         rod = phi*axis
         x_gt = np.concatenate((rod,trans), axis = 0)
-
         nb_pts = 10 # Number of points to generate
         # Sample random points in image space
         pix = np.concatenate((np.random.randint(0,640,(1,nb_pts)), np.random.randint(0,480,(1,nb_pts))), axis = 0)
@@ -533,11 +544,14 @@ if __name__ == '__main__':
         depths = np.random.uniform(min_dist,max_dist,(nb_pts))
 
         # Compute 3D points positions in camera coordinates
+        # lambda_i * v_i from paper
         noise_sd = 0.0001
         cam_pts = obs_rays * np.diag(depths)
 
         # Convert to world coordinates
-        world_pts = rod2rot(x_gt[0:3]) @ cam_pts + np.repeat(x_gt[3:6],nb_pts, axis = 1) + np.random.normal(0,noise_sd,obs_rays.shape)
+        # p_i from paper
+        # world_pts = rod2rot(x_gt[0:3]) @ cam_pts - np.repeat(x_gt[3:6],nb_pts, axis = 1) + np.random.normal(0,noise_sd,obs_rays.shape)
+        world_pts = npl.inv(rod2rot(x_gt[0:3])) @ (cam_pts - np.repeat(x_gt[3:6],nb_pts, axis = 1)) + np.random.normal(0,noise_sd,obs_rays.shape)
 
         # Generate random covariance
         cov = np.random.rand(9,nb_pts)
