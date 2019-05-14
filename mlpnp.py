@@ -6,7 +6,6 @@ from scipy.linalg import null_space
 import math
 from math import sin, cos, acos, sqrt, pi
 import time
-import sympy as sp
 
 ### RODRIGUES CONVERSIONS
 def rod2rot(rod):
@@ -283,19 +282,6 @@ def jacobian(pt, nullspace_r, nullspace_s, rot, trans):
     jac[1, 4] = s2*t65-t14*t101*t167*t212*(1.0/2.0)
     jac[1, 5] = s3*t65-t14*t101*t167*t216*(1.0/2.0)
 
-    print('handmade :\n',jac)
-
-    r1,r2,r3,t1,t2,t3 = sp.symbols('r1,r2,r3,t1,t2,t3', real=True)
-    J = Function('J')(r1,r2,r3,t1,t2,t3)
-    f1 = nullspace_r[0]
-    f2 = nullspace_r[1]
-    f3 = nullspace_r[2]
-    f4 = nullspace_s[0]
-    f5 = nullspace_s[1]
-    f6 = nullspace_s[2]
-
-
-
     return jac
 
 # Residuals and jacobians for all points
@@ -461,17 +447,6 @@ def mlpnp(w_pts, v, cov = None):
     # Find the best solution with 6 correspondences
     diff1 = 0
     diff2 = 0
-    # for i in range(6):
-    #     testres1 = npl.inv(R) @ (w_pts[:,i] - t)
-    #     testres2 = npl.inv(R) @ (w_pts[:,i] + t)
-    #     testres1 = testres1 / npl.norm(testres1)
-    #     testres2 = testres2 / npl.norm(testres2)
-    #     diff1 += 1-np.dot(testres1.transpose(), v[:,i])
-    #     diff2 += 1-np.dot(testres2.transpose(), v[:,i])
-    # if diff1 <= diff2:  trans = t
-    # else:               trans = -t
-    #
-    # x = np.matrix(np.concatenate((rot2rod(R),trans)))
     for i in range(6):
         testres1 = R_inv @ (w_pts[:,i] - t)
         testres2 = R_inv @ (w_pts[:,i] + t)
@@ -486,7 +461,7 @@ def mlpnp(w_pts, v, cov = None):
 
     # Refine with Gauss Newton
     x_gn = [0]
-    # x_gn = refine_gauss_newton(x, w_pts, nullspace_r, nullspace_s, P, use_cov)
+    x_gn = refine_gauss_newton(x, w_pts, nullspace_r, nullspace_s, P, use_cov)
     return np.around(x,10), np.around(x_gn,10)
 
 
@@ -507,8 +482,8 @@ if __name__ == '__main__':
     # Intrinsics matrix
     K = np.matrix('640 1 320 ; 0 480 240 ; 0 0 1')
 
-    nb_iter = 1
-    display = True
+    nb_iter = 10000
+    display = False
     randomize = True
 
     count_ok = 0
@@ -519,13 +494,13 @@ if __name__ == '__main__':
         if randomize:
             phi = random.uniform(-pi+0.001, pi-0.001)
             axis = np.matrix(np.random.random((3,1)))
-            trans = np.matrix(np.random.random((3,1)) * random.uniform(1,10)) 
+            trans = np.matrix(np.random.random((3,1)) * random.uniform(1,10))
         else:
             phi = 1530
             phi = (phi + pi)%2*pi - pi
-            phi = 1
+            phi = 0
             axis = np.matrix('-1.818 -0.237 -2.086').transpose()
-            trans = np.matrix('0.949 0.654 0.176').transpose()
+            trans = np.matrix('0 1 1').transpose()
 
         axis = axis/npl.norm(axis)
         rod = phi*axis
@@ -567,13 +542,23 @@ if __name__ == '__main__':
             print('x_pnp :\n', x)
             print('error :', npl.norm(x_gt-x))
             print()
-            # print('x_gn :\n', x_gn)
-            # print('error :', npl.norm(x_gt-x_gn), '\n')
+            print('x_gn :\n', x_gn)
+            print('error :', npl.norm(x_gt-x_gn), '\n')
 
-        if npl.norm(x_gt-x) > 0.1: # < npl.norm(x_gt-x_gn):
+        if npl.norm(x_gt-x) < npl.norm(x_gt-x_gn):
             count_ko += 1
+            if npl.norm(x_gt-x)*5 < npl.norm(x_gt-x_gn):
+                print('bad !:')
+                print(npl.norm(x_gt-x))
+                print(npl.norm(x_gt-x_gn))
+                print()
         else:
             count_ok += 1
+            if npl.norm(x_gt-x) > npl.norm(x_gt-x_gn)*10:
+                print('good !:')
+                print(npl.norm(x_gt-x))
+                print(npl.norm(x_gt-x_gn))
+                print()
     if nb_iter != 1:
         print('ok :', count_ok, '\nko :', count_ko)
 
