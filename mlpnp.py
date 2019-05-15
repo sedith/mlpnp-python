@@ -7,6 +7,7 @@ import math
 from math import sin, cos, acos, sqrt, pi
 import time
 
+
 ### RODRIGUES CONVERSIONS
 def rod2rot(rod):
     phi = ((np.linalg.norm(rod) +pi) % (2*pi)) - pi # ensure that phi is in [-pi,pi]
@@ -282,6 +283,70 @@ def jacobian(pt, nullspace_r, nullspace_s, rot, trans):
     jac[1, 4] = s2*t65-t14*t101*t167*t212*(1.0/2.0)
     jac[1, 5] = s3*t65-t14*t101*t167*t216*(1.0/2.0)
 
+    # print('his :\n', jac)
+
+    pt1 = pt[0]
+    pt2 = pt[1]
+    pt3 = pt[2]
+
+    nr1 = nullspace_r[0]
+    nr2 = nullspace_r[1]
+    nr3 = nullspace_r[2]
+    ns1 = nullspace_s[0]
+    ns2 = nullspace_s[1]
+    ns3 = nullspace_s[2]
+
+    r1 = rot[0]
+    r2 = rot[1]
+    r3 = rot[2]
+
+    t1 = trans[0]
+    t2 = trans[1]
+    t3 = trans[2]
+
+    phi = sqrt(r1**2 + r2**2 + r3**2)
+    cosphi = cos(phi)
+    sinphi = sin(phi)
+    jac[0, 0] = - nr1*(pt2*r2 + pt3*r3)*(cosphi-1) \
+                - nr2*(pt1+pt2+pt3)*sinphi \
+                + 2*nr3*r1*(cosphi-1)*(pt1+pt2+pt3)
+    jac[0, 1] = nr1*(2*pt1*r2*(cosphi-1) \
+                     - pt2*r1*(cosphi-1) \
+                     + pt3*sinphi) \
+                - nr2*r3*(cosphi-1)*(pt1+pt2+pt3) \
+                + 2*nr3*r2*(cosphi-1)*(pt1+pt2+pt3)
+    jac[0, 2] = - nr1*(-2*pt1*r3*(cosphi-1) \
+                       + pt2*sinphi \
+                       + pt3*r1*(cosphi-1)) \
+                - nr2*r2*(cosphi-1)*(pt1+pt2+pt3)
+    jac[0, 3] = nr1
+    jac[0, 4] = nr2
+    jac[0, 5] = nr3
+
+    jac[1, 0] = - ns1*(pt2*r2 + pt3*r3)*(cosphi-1) \
+                - ns2*(pt1+pt2+pt3)*sinphi \
+                + 2*ns3*r1*(cosphi-1)*(pt1+pt2+pt3)
+    jac[1, 1] = ns1*(2*pt1*r2*(cosphi-1)
+                     - pt2*r1*(cosphi-1)
+                     + pt3*sinphi) \
+                - ns2*r3*(cosphi-1)*(pt1+pt2+pt3) \
+                + 2*ns3*r2*(cosphi-1)*(pt1+pt2+pt3)
+    jac[1, 2] = - ns1*(-2*pt1*r3*(cosphi-1) \
+                       + pt2*sinphi \
+                       + pt3*r1*(cosphi-1)) \
+                - ns2*r2*(cosphi-1)*(pt1+pt2+pt3)
+    jac[1, 3] = ns1
+    jac[1, 4] = ns2
+    jac[1, 5] = ns3
+
+    print()
+    print(pt)
+    print(nullspace_r)
+    print(nullspace_s)
+    print(rot)
+    print(trans)
+    print('mine:\n', jac)
+
     return jac
 
 # Residuals and jacobians for all points
@@ -363,8 +428,10 @@ def refine_gauss_newton(x, w_pts, nullspace_r, nullspace_s, P, use_cov):
 
 
 ### MLPNP
-# Estimate 4x4 transform matrix (world to camera) from a set of N 3D points (in the world coordinate system),
-# and the corresponding bearing vectors (image rays) and its covariance matrix (size 9*N) if available
+""" Estimate 4x4 transform matrix (world to camera) from a set of N 3D points
+    (in the world coordinate system), the corresponding bearing vectors
+    (image rays), and the measurements covariance matrix (size 9*N) if available
+"""
 def mlpnp(w_pts, v, cov = None):
     assert w_pts.shape[1] > 5
     use_cov = (cov is not None)
@@ -376,7 +443,7 @@ def mlpnp(w_pts, v, cov = None):
 
     ### TODO : planar case
 
-    # Compute nullspaces
+    # Compute nullspaces for each observed data
     for i in range(nb_pts):
         null_2d = null_space(v[:,i].transpose())
         nullspace_r[:,i] = null_2d[:,0]
@@ -384,10 +451,11 @@ def mlpnp(w_pts, v, cov = None):
         if use_cov:
             cov_reduced[:,:,i] = npl.inv(null_2d.transpose() @ np.reshape(cov[:,i],(3,3)) @ null_2d)
 
-    # Stochastic model
+    # Empty stochastic model
     P = np.identity(2*nb_pts)
-    # Design matrix
+    # Empty design matrix
     A = np.zeros((2*nb_pts,12))
+    # Iteratively go through observations to build stochastic model and design matrix
     for i in range(nb_pts):
         # Covariance
         if use_cov: P[2*i:2*(i+1),2*i:2*(i+1)] = cov_reduced[:,:,i]
@@ -461,11 +529,20 @@ def mlpnp(w_pts, v, cov = None):
 
     # Refine with Gauss Newton
     x_gn = [0]
-    x_gn = refine_gauss_newton(x, w_pts, nullspace_r, nullspace_s, P, use_cov)
+    # x_gn = refine_gauss_newton(x, w_pts, nullspace_r, nullspace_s, P, use_cov)
     return np.around(x,10), np.around(x_gn,10)
+
+    # Covariance matrix of unknown transformation parameters
+
 
 
 ### MAIN
+""" The main functions generate a random [R,T] transformation, then generates
+    random points in the image frame.
+    Then these points are converted in the camera coordinates system then
+    the world coordinates system, noised, and used in PnP to estimate back the
+    transformation from world to camera.
+"""
 if __name__ == '__main__':
     # Convert pixel coordinate points into rays (unitary bearing vectors)
     # K : camera matrix (3x3)
@@ -488,6 +565,7 @@ if __name__ == '__main__':
 
     count_ok = 0
     count_ko = 0
+    av_time = 0
 
     for i in range(nb_iter):
         # Ground truth transformation from world to cam
@@ -541,11 +619,11 @@ if __name__ == '__main__':
             print('x_gt  :\n', x_gt)
             print('x_pnp :\n', x)
             print('error :', npl.norm(x_gt-x))
-            print()
-            print('x_gn :\n', x_gn)
-            print('error :', npl.norm(x_gt-x_gn), '\n')
+            # print()
+            # print('x_gn :\n', x_gn)
+            # print('error :', npl.norm(x_gt-x_gn), '\n')
 
-        if npl.norm(x_gt-x) < npl.norm(x_gt-x_gn):
+        if npl.norm(x_gt-x) > 0.1: # < npl.norm(x_gt-x_gn):
             count_ko += 1
             if npl.norm(x_gt-x)*5 < npl.norm(x_gt-x_gn):
                 print('bad !:')
@@ -559,7 +637,9 @@ if __name__ == '__main__':
                 print(npl.norm(x_gt-x))
                 print(npl.norm(x_gt-x_gn))
                 print()
+        av_time += tac-tic
     if nb_iter != 1:
+        print('av. time :', av_time/nb_iter)
         print('ok :', count_ok, '\nko :', count_ko)
 
 # pts = np.matrix(np.random.rand(3,nb_pts))
