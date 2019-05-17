@@ -18,7 +18,7 @@ def rod2rot(rod):
         N = N / phi
         rot = np.identity(3) + (1-cos(phi))*(N**2) + sin(phi)*N
     else: rot = np.identity(3)
-    return rot #np.around(rot,6))
+    return np.matrix(rot) #np.around(rot,6))
 
 def rot2rod(rot):
     N = [0,0,0]
@@ -38,30 +38,31 @@ def rot2rod(rot):
 # Compute the jacobian in point pt of the residual function (eq.10 in paper)
 def jacobian(pt, nullspace_r, nullspace_s, rot, trans):
     jac = np.zeros((2,6))
-    r1 = float(nullspace_r[0])
-    r2 = float(nullspace_r[1])
-    r3 = float(nullspace_r[2])
 
-    s1 = float(nullspace_s[0])
-    s2 = float(nullspace_s[1])
-    s3 = float(nullspace_s[2])
+    r1 = nullspace_r[0]
+    r2 = nullspace_r[1]
+    r3 = nullspace_r[2]
 
-    X1 = float(pt[0])
-    Y1 = float(pt[1])
-    Z1 = float(pt[2])
+    s1 = nullspace_s[0]
+    s2 = nullspace_s[1]
+    s3 = nullspace_s[2]
 
-    w1 = float(rot[0,0])
-    w2 = float(rot[1,0])
-    w3 = float(rot[2,0])
-    t1 = float(trans[0])
-    t2 = float(trans[1])
-    t3 = float(trans[2])
+    X1 = pt[0]
+    Y1 = pt[1]
+    Z1 = pt[2]
+
+    w1 = rot[0,0]
+    w2 = rot[1,0]
+    w3 = rot[2,0]
+    t1 = trans[0]
+    t2 = trans[1]
+    t3 = trans[2]
 
     t5 = w1*w1
     t6 = w2*w2
     t7 = w3*w3
-    t8 = t5+t6+t7
-    t9 = sqrt(t8)
+    t8 = t5+t6+t7 # phi**2
+    t9 = sqrt(t8) # phi
     t10 = sin(t9)
     t11 = 1.0/sqrt(t8)
     t12 = cos(t9)
@@ -72,32 +73,32 @@ def jacobian(pt, nullspace_r, nullspace_s, rot, trans):
     t19 = t10*t11*w2
     t20 = t13*t14*w1*w3
     t24 = t6+t7
-    t27 = t16+t17
+    t27 = t16+t17 # R12
     t28 = Y1*t27
-    t29 = t19-t20
+    t29 = t19-t20 # R13
     t30 = Z1*t29
     t31 = t13*t14*t24
-    t32 = t31+1.0
+    t32 = t31+1.0 # R11
     t33 = X1*t32
     t15 = t1-t28+t30+t33
     t21 = t10*t11*w1
     t22 = t13*t14*w2*w3
     t45 = t5+t7
-    t53 = t16-t17
+    t53 = t16-t17 # R21
     t54 = X1*t53
-    t55 = t21+t22
+    t55 = t21+t22 # R23
     t56 = Z1*t55
     t57 = t13*t14*t45
-    t58 = t57+1.0
+    t58 = t57+1.0 # R22
     t59 = Y1*t58
     t18 = t2+t54-t56+t59
     t34 = t5+t6
-    t38 = t19+t20
+    t38 = t19+t20 # R31
     t39 = X1*t38
-    t40 = t21-t22
+    t40 = t21-t22 # R32
     t41 = Y1*t40
     t42 = t13*t14*t34
-    t43 = t42+1.0
+    t43 = t42+1.0 # R33
     t44 = Z1*t43
     t23 = t3-t39+t41+t44
     t25 = 1.0/(t8**(3.0/2))
@@ -115,9 +116,9 @@ def jacobian(pt, nullspace_r, nullspace_s, rot, trans):
     t60 = t15*t15
     t61 = t18*t18
     t62 = t23*t23
-    t63 = t60+t61+t62
+    t63 = t60+t61+t62  # lambda_i **2
     t64 = t5*t10*t25
-    t65 = 1.0/sqrt(t63)
+    t65 = 1.0/sqrt(t63)  # 1/lambda_i
     t66 = Y1*r2*t6
     t67 = Z1*r3*t7
     t68 = r1*t1*t5
@@ -283,73 +284,24 @@ def jacobian(pt, nullspace_r, nullspace_s, rot, trans):
     jac[1, 4] = s2*t65-t14*t101*t167*t212*(1.0/2.0)
     jac[1, 5] = s3*t65-t14*t101*t167*t216*(1.0/2.0)
 
-    # print('his :\n', jac)
+    return np.matrix(jac)
 
-    pt1 = pt[0]
-    pt2 = pt[1]
-    pt3 = pt[2]
-
-    nr1 = nullspace_r[0]
-    nr2 = nullspace_r[1]
-    nr3 = nullspace_r[2]
-    ns1 = nullspace_s[0]
-    ns2 = nullspace_s[1]
-    ns3 = nullspace_s[2]
-
-    r1 = rot[0]
-    r2 = rot[1]
-    r3 = rot[2]
-
-    t1 = trans[0]
-    t2 = trans[1]
-    t3 = trans[2]
-
-    phi = sqrt(r1**2 + r2**2 + r3**2)
-    cosphi = cos(phi)
-    sinphi = sin(phi)
-    jac[0, 0] = - nr1*(pt2*r2 + pt3*r3)*(cosphi-1) \
-                - nr2*(pt1+pt2+pt3)*sinphi \
-                + 2*nr3*r1*(cosphi-1)*(pt1+pt2+pt3)
-    jac[0, 1] = nr1*(2*pt1*r2*(cosphi-1) \
-                     - pt2*r1*(cosphi-1) \
-                     + pt3*sinphi) \
-                - nr2*r3*(cosphi-1)*(pt1+pt2+pt3) \
-                + 2*nr3*r2*(cosphi-1)*(pt1+pt2+pt3)
-    jac[0, 2] = - nr1*(-2*pt1*r3*(cosphi-1) \
-                       + pt2*sinphi \
-                       + pt3*r1*(cosphi-1)) \
-                - nr2*r2*(cosphi-1)*(pt1+pt2+pt3)
-    jac[0, 3] = nr1
-    jac[0, 4] = nr2
-    jac[0, 5] = nr3
-
-    jac[1, 0] = - ns1*(pt2*r2 + pt3*r3)*(cosphi-1) \
-                - ns2*(pt1+pt2+pt3)*sinphi \
-                + 2*ns3*r1*(cosphi-1)*(pt1+pt2+pt3)
-    jac[1, 1] = ns1*(2*pt1*r2*(cosphi-1)
-                     - pt2*r1*(cosphi-1)
-                     + pt3*sinphi) \
-                - ns2*r3*(cosphi-1)*(pt1+pt2+pt3) \
-                + 2*ns3*r2*(cosphi-1)*(pt1+pt2+pt3)
-    jac[1, 2] = - ns1*(-2*pt1*r3*(cosphi-1) \
-                       + pt2*sinphi \
-                       + pt3*r1*(cosphi-1)) \
-                - ns2*r2*(cosphi-1)*(pt1+pt2+pt3)
-    jac[1, 3] = ns1
-    jac[1, 4] = ns2
-    jac[1, 5] = ns3
-
-    print()
-    print(pt)
-    print(nullspace_r)
-    print(nullspace_s)
-    print(rot)
-    print(trans)
-    print('mine:\n', jac)
-
-    return jac
 
 # Residuals and jacobians for all points
+# Compute the jacobians
+def jacobians(w_pts, nullspace_r, nullspace_s, x):
+    nb_obs = w_pts.shape[1]
+    nb_unknowns = 6
+    w = x[0:3]
+    T = np.matrix(x[3:6])
+    jacobians = np.zeros((2*nb_obs,nb_unknowns))
+    for i in range(nb_obs):
+        # jacs
+        jac = jacobian(w_pts[:,i],nullspace_r[:,i], nullspace_s[:,i], w, T)
+        jacobians[2*i  ,:] = jac[0,:]
+        jacobians[2*i+1,:] = jac[1,:]
+    return jacobians
+
 # Compute the residuals and jacobians for a set of points, a transformation x and the corresponding nullspaces
 def residuals_and_jacobians(w_pts, nullspace_r, nullspace_s, x):
     nb_obs = w_pts.shape[1]
@@ -358,25 +310,22 @@ def residuals_and_jacobians(w_pts, nullspace_r, nullspace_s, x):
     R = rod2rot(w)
     T = np.matrix(x[3:6])
 
-    ii = 0
-    r = np.zeros((2*nb_obs,1));
+    residuals = np.zeros((2*nb_obs,1));
     jacobians = np.zeros((2*nb_obs,nb_unknowns))
 
     for i in range(nb_obs):
-        # pi = R*w_pts[i] + T
-        pi = R @ w_pts[:,i] + T
-        pi /= np.linalg.norm(pi)
+        # pi = R*pi + T
+        p_i = R @ w_pts[:,i] + T
+        p_i /= np.linalg.norm(p_i)
         # [dr, ds]^T = J_v_r(pi) * pi
         # r = nullspace[i]^T * pi
-        r[ii  ,0] = nullspace_r[:,i] @ pi
-        r[ii+1,0] = nullspace_s[:,i] @ pi
+        residuals[2*i  ,0] = nullspace_r[:,i] @ p_i
+        residuals[2*i+1,0] = nullspace_s[:,i] @ p_i
         # jacs
         jac = jacobian(w_pts[:,i],nullspace_r[:,i], nullspace_s[:,i], w, T)
-
-        jacobians[ii  ,:] = jac[0,:]
-        jacobians[ii+1,:] = jac[1,:]
-        ii += 2
-    return jacobians, r
+        jacobians[2*i  ,:] = jac[0,:]
+        jacobians[2*i+1,:] = jac[1,:]
+    return jacobians, residuals
 
 # Gauss Newton optimization for MLPnP solution
 # Refine the 6D transformation x, from a set a points, the corresponding nullspaces, the covariance matrix P, and the initial guess for x
@@ -399,7 +348,7 @@ def refine_gauss_newton(x, w_pts, nullspace_r, nullspace_s, P, use_cov):
     while iter < max_it and not stop:
         jacs, r = residuals_and_jacobians(w_pts, nullspace_r, nullspace_s, x)
         if use_cov: JacTP = jacs.transpose() @ P
-        else: JacTP = jacs.transpose()
+        else      : JacTP = jacs.transpose()
         # Design matrix
         N = JacTP @ jacs
         # Get system
@@ -421,9 +370,6 @@ def refine_gauss_newton(x, w_pts, nullspace_r, nullspace_s, P, use_cov):
             x = x - dx
         iter += 1
 
-    # # Statistics
-    # Qxx = npl.inv(N)
-    # Qldld = jacs.dot(Qxx).dot(jacs.transpose())
     return x
 
 
@@ -528,20 +474,30 @@ def mlpnp(w_pts, v, cov = None):
     x = np.matrix(np.concatenate((rot2rod(R_inv),trans)))
 
     # Refine with Gauss Newton
-    x_gn = [0]
-    # x_gn = refine_gauss_newton(x, w_pts, nullspace_r, nullspace_s, P, use_cov)
-    return np.around(x,10), np.around(x_gn,10)
+    # x_gn = [0]
+    x_gn = refine_gauss_newton(x, w_pts, nullspace_r, nullspace_s, P, use_cov)
 
     # Covariance matrix of unknown transformation parameters
-
+    # Sigma_r,t is paper (eq. 23)
+    jacs = jacobians(w_pts, nullspace_r, nullspace_s, x)
+    sigma = npl.inv(jacs.transpose() @ P @ jacs)
+    # print(sigma)
+    return np.around(x,10), np.around(x_gn,10)
 
 
 ### MAIN
 """ The main functions generate a random [R,T] transformation, then generates
     random points in the image frame.
     Then these points are converted in the camera coordinates system then
-    the world coordinates system, noised, and used in PnP to estimate back the
-    transformation from world to camera.
+    the world coordinates system.
+    Doing this in this order ensures that generated world points are contained
+    inside the camera field of view.
+    At this point we have :
+        * A transformation from world to camera frames
+        * A set of world points of known coordinates
+        * A set of corresponding image measurements (rays)
+    Then, we noise the image measurements and use the PnP to try to recover the
+    transformation)
 """
 if __name__ == '__main__':
     # Convert pixel coordinate points into rays (unitary bearing vectors)
@@ -559,14 +515,15 @@ if __name__ == '__main__':
     # Intrinsics matrix
     K = np.matrix('640 1 320 ; 0 480 240 ; 0 0 1')
 
-    nb_iter = 10000
+    nb_iter = 1000
     display = False
     randomize = True
 
     count_ok = 0
     count_ko = 0
-    av_time = 0
-
+    ls_time = []
+    ls_prec = []
+    ls_p_gn = []
     for i in range(nb_iter):
         # Ground truth transformation from world to cam
         if randomize:
@@ -579,12 +536,12 @@ if __name__ == '__main__':
             phi = 0
             axis = np.matrix('-1.818 -0.237 -2.086').transpose()
             trans = np.matrix('0 1 1').transpose()
-
         axis = axis/npl.norm(axis)
         rod = phi*axis
         x_gt = np.concatenate((rod,trans), axis = 0)
-        nb_pts = 10 # Number of points to generate
+
         # Sample random points in image space
+        nb_pts = 20 # Number of points to generate
         pix = np.concatenate((np.random.randint(0,640,(1,nb_pts)), np.random.randint(0,480,(1,nb_pts))), axis = 0)
         # Convert those pixels to rays
         # v_i from paper
@@ -593,18 +550,22 @@ if __name__ == '__main__':
         # Sample random distances for world coordinates
         # lambda_i from paper
         min_dist = 2
-        max_dist = 10
+        max_dist = 3
         depths = np.random.uniform(min_dist,max_dist,(nb_pts))
 
         # Compute 3D points positions in camera coordinates
         # lambda_i * v_i from paper
-        noise_sd = 0.0001
         cam_pts = obs_rays * np.diag(depths)
 
         # Convert to world coordinates
         # p_i from paper
-        # world_pts = rod2rot(x_gt[0:3]) @ cam_pts - np.repeat(x_gt[3:6],nb_pts, axis = 1) + np.random.normal(0,noise_sd,obs_rays.shape)
-        world_pts = npl.inv(rod2rot(x_gt[0:3])) @ (cam_pts - np.repeat(x_gt[3:6],nb_pts, axis = 1)) + np.random.normal(0,noise_sd,obs_rays.shape)
+        # world_pts = rod2rot(x_gt[0:3]) @ cam_pts - np.repeat(x_gt[3:6],nb_pts, axis = 1)
+        world_pts = npl.inv(rod2rot(x_gt[0:3])) @ (cam_pts - np.repeat(x_gt[3:6],nb_pts, axis = 1))
+
+        # Noise "observed" rays with gaussian noise
+        noise_sd = 0.0001
+        noise = np.random.normal(0,noise_sd,obs_rays.shape)
+        obs_rays += noise
 
         # Generate random covariance
         cov = np.random.rand(9,nb_pts)
@@ -614,32 +575,35 @@ if __name__ == '__main__':
         x, x_gn = mlpnp(world_pts, obs_rays)
         # x, x_gn = mlpnp(world_pts, obs_rays, cov)
         tac = time.time()
+        err_pnp = npl.norm(x_gt-x)
+        err_gn = npl.norm(x_gt-x_gn)
         if display:
-            # print('overall :', tac-tic)
             print('x_gt  :\n', x_gt)
             print('x_pnp :\n', x)
-            print('error :', npl.norm(x_gt-x))
-            # print()
-            # print('x_gn :\n', x_gn)
-            # print('error :', npl.norm(x_gt-x_gn), '\n')
+            print('error :', err_pnp)
+            print()
+            print('x_gn :\n', x_gn)
+            print('error :', npl.norm(x_gt-x_gn), '\n')
 
-        if npl.norm(x_gt-x) > 0.1: # < npl.norm(x_gt-x_gn):
+        if err_pnp < err_gn:
             count_ko += 1
-            if npl.norm(x_gt-x)*5 < npl.norm(x_gt-x_gn):
-                print('bad !:')
-                print(npl.norm(x_gt-x))
-                print(npl.norm(x_gt-x_gn))
-                print()
         else:
             count_ok += 1
-            if npl.norm(x_gt-x) > npl.norm(x_gt-x_gn)*10:
-                print('good !:')
-                print(npl.norm(x_gt-x))
-                print(npl.norm(x_gt-x_gn))
-                print()
-        av_time += tac-tic
+        ls_time.append(tac-tic)
+        ls_prec.append(err_pnp)
+        ls_p_gn.append(err_gn)
     if nb_iter != 1:
-        print('av. time :', av_time/nb_iter)
-        print('ok :', count_ok, '\nko :', count_ko)
+        print('score -')
+        print('  ok  :', count_ok)
+        print('  ko  :', count_ko)
+        print('time  -')
+        print('  av. :', np.mean(ls_time))
+        print('  sd. :', np.std (ls_time))
+        print('precision -')
+        print('  av. :', np.mean(ls_prec))
+        print('  sd. :', np.std (ls_prec))
+        print('precision gn -')
+        print('  av. :', np.mean(ls_p_gn))
+        print('  sd. :', np.std (ls_p_gn))
 
 # pts = np.matrix(np.random.rand(3,nb_pts))
