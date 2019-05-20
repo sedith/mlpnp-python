@@ -292,9 +292,9 @@ def jacobian(pt, nullspace_r, nullspace_s, rot, trans):
 def jacobians(w_pts, nullspace_r, nullspace_s, x):
     nb_obs = w_pts.shape[1]
     nb_unknowns = 6
-    w = x[0:3]
+    w = np.matrix(x[0:3])
     T = np.matrix(x[3:6])
-    jacobians = np.zeros((2*nb_obs,nb_unknowns))
+    jacobians = np.matrix(np.zeros((2*nb_obs,nb_unknowns)))
     for i in range(nb_obs):
         # jacs
         jac = jacobian(w_pts[:,i],nullspace_r[:,i], nullspace_s[:,i], w, T)
@@ -310,8 +310,8 @@ def residuals_and_jacobians(w_pts, nullspace_r, nullspace_s, x):
     R = rod2rot(w)
     T = np.matrix(x[3:6])
 
-    residuals = np.zeros((2*nb_obs,1));
-    jacobians = np.zeros((2*nb_obs,nb_unknowns))
+    residuals = np.matrix(np.zeros((2*nb_obs,1)))
+    jacobians = np.matrix(np.zeros((2*nb_obs,nb_unknowns)))
 
     for i in range(nb_obs):
         # pi = R*pi + T
@@ -335,10 +335,10 @@ def refine_gauss_newton(x, w_pts, nullspace_r, nullspace_s, P, use_cov):
     assert ((2 * nb_obs - 6) > 0)
 
     # Set matrices
-    r = np.zeros(2*nb_obs)
-    rd = np.zeros(2*nb_obs)
-    dx = np.zeros((nb_unknowns, 1))
-    eyeMat = np.identity(nb_unknowns)
+    r = np.matrix(np.zeros(2*nb_obs))
+    rd = np.matrix(np.zeros(2*nb_obs))
+    dx = np.matrix(np.zeros((nb_unknowns, 1)))
+    eyeMat = np.matrix(np.identity(nb_unknowns))
 
     iter = 0
     stop = False
@@ -378,7 +378,7 @@ def refine_gauss_newton(x, w_pts, nullspace_r, nullspace_s, P, use_cov):
     (in the world coordinate system), the corresponding bearing vectors
     (image rays), and the measurements covariance matrix (size 9*N) if available
 """
-def mlpnp(w_pts, v, cov = None):
+def mlpnp(w_pts, v, cov = None, use_gn = False):
     assert w_pts.shape[1] > 5
     use_cov = (cov is not None)
     # Definitions
@@ -398,9 +398,9 @@ def mlpnp(w_pts, v, cov = None):
             cov_reduced[:,:,i] = npl.inv(null_2d.transpose() @ np.reshape(cov[:,i],(3,3)) @ null_2d)
 
     # Empty stochastic model
-    P = np.identity(2*nb_pts)
+    P = np.matrix(np.identity(2*nb_pts))
     # Empty design matrix
-    A = np.zeros((2*nb_pts,12))
+    A = np.matrix(np.zeros((2*nb_pts,12)))
     # Iteratively go through observations to build stochastic model and design matrix
     for i in range(nb_pts):
         # Covariance
@@ -450,11 +450,11 @@ def mlpnp(w_pts, v, cov = None):
     R_tmp = np.reshape(V[0:9,-1],(3,3))
     # SVD to find the best rotation matrix in the Frobenius sense
     Ur,_,VHr = npl.svd(R_tmp.transpose())
-    R = Ur.dot(VHr)
+    R = np.matrix(Ur.dot(VHr))
     if npl.det(R) < 0: R = -1*R
     R_inv = npl.inv(R)
     # Recover translation
-    t = np.matrix(V[9:12,-1]).transpose()
+    t = np.matrix(V[9:12,-1])
     t /= ( npl.norm(R_tmp[:,0],axis = 0)*npl.norm(R_tmp[:,1])*npl.norm(R_tmp[:,2]) )**(1./3)
     t = R @ t
 
@@ -474,14 +474,17 @@ def mlpnp(w_pts, v, cov = None):
     x = np.matrix(np.concatenate((rot2rod(R_inv),trans)))
 
     # Refine with Gauss Newton
-    # x_gn = [0]
-    x_gn = refine_gauss_newton(x, w_pts, nullspace_r, nullspace_s, P, use_cov)
+    if use_gn:
+        x_gn = refine_gauss_newton(x, w_pts, nullspace_r, nullspace_s, P, use_cov)
+    else:
+        x_gn = [0]
 
     # Covariance matrix of unknown transformation parameters
     # Sigma_r,t is paper (eq. 23)
-    jacs = jacobians(w_pts, nullspace_r, nullspace_s, x)
-    sigma = npl.inv(jacs.transpose() @ P @ jacs)
+    # jacs = jacobians(w_pts, nullspace_r, nullspace_s, x)
+    # sigma = npl.inv(jacs.transpose() @ P @ jacs)
     # print(sigma)
+
     return np.around(x,10), np.around(x_gn,10)
 
 
@@ -518,6 +521,7 @@ if __name__ == '__main__':
     nb_iter = 1000
     display = False
     randomize = True
+    use_gn = False
 
     count_ok = 0
     count_ko = 0
@@ -541,7 +545,7 @@ if __name__ == '__main__':
         x_gt = np.concatenate((rod,trans), axis = 0)
 
         # Sample random points in image space
-        nb_pts = 20 # Number of points to generate
+        nb_pts = 10 # Number of points to generate
         pix = np.concatenate((np.random.randint(0,640,(1,nb_pts)), np.random.randint(0,480,(1,nb_pts))), axis = 0)
         # Convert those pixels to rays
         # v_i from paper
@@ -559,7 +563,6 @@ if __name__ == '__main__':
 
         # Convert to world coordinates
         # p_i from paper
-        # world_pts = rod2rot(x_gt[0:3]) @ cam_pts - np.repeat(x_gt[3:6],nb_pts, axis = 1)
         world_pts = npl.inv(rod2rot(x_gt[0:3])) @ (cam_pts - np.repeat(x_gt[3:6],nb_pts, axis = 1))
 
         # Noise "observed" rays with gaussian noise
@@ -568,12 +571,12 @@ if __name__ == '__main__':
         obs_rays += noise
 
         # Generate random covariance
-        cov = np.random.rand(9,nb_pts)
+        # cov = np.random.rand(9,nb_pts)
+        cov = None
 
         # Apply PnP
         tic = time.time()
-        x, x_gn = mlpnp(world_pts, obs_rays)
-        # x, x_gn = mlpnp(world_pts, obs_rays, cov)
+        x, x_gn = mlpnp(world_pts, obs_rays, cov, use_gn)
         tac = time.time()
         err_pnp = npl.norm(x_gt-x)
         err_gn = npl.norm(x_gt-x_gn)
