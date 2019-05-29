@@ -481,11 +481,53 @@ def mlpnp(w_pts, v, cov = None, use_gn = False):
 
     # Covariance matrix of unknown transformation parameters
     # Sigma_r,t is paper (eq. 23)
-    # jacs = jacobians(w_pts, nullspace_r, nullspace_s, x)
-    # sigma = npl.inv(jacs.transpose() @ P @ jacs)
-    # print(sigma)
+    jacs = jacobians(w_pts, nullspace_r, nullspace_s, x)
+    sigma = npl.inv(jacs.transpose() @ P @ jacs)
 
-    return np.around(x,10), np.around(x_gn,10)
+    return np.around(x,10), np.around(x_gn,10), sigma
+
+
+### PROJECTION
+# Project observed pixel from image plane to camera frame, and
+# propagate the observation covariance through the projection and transform it to desired shape
+# We assume the perspective case (pinhole model), hence pi is K^(-1)
+# eq. (2) to (6) in paper
+# K     : (3x3) camera intrinsics matrix -- pi in paper
+# pix   : (2,n) or (3,n) matrix, each collumn corresponds to an observed pixel -- x' in paper
+# cov   : (4,n) matrix, each collum corresponds to the (2,2) covariance matrix for each observations -- Sigma_x'x' in paper
+# output: (3,n) matrix, each collum corresponds to the projected ray for each pixel -- v in paper
+#         (9,n) matrix, each collum corresponds to the propagate covariance through the observation -- Sigma_vv in paper
+def pix2rays(K, pix, cov = None):
+    # Add z coordinate if not already existing (=1, on image plane)
+    if pix.shape[0] == 2:
+        pix = np.concatenate((pix,np.ones((pix.shape[1],1)).transpose()), axis = 0)
+    x = npl.inv(K[0:3,0:3])*pix
+    # Invert first coordinate because u (in image plane) is along -x (in camera frame)
+    x[0,:] = -x[0,:]
+    norm_x = npl.norm(x,axis = 0)
+    v = np.matrix(x / norm_x)
+
+    # If observation covariance is provided, propagate it
+    if cov is None:
+        sigma_v = None
+    else:
+        nb_pts = pix.shape[1]
+        sigma_v = np.matrix(np.zeros((9,nb_pts)))
+        sigma_x = np.matrix(np.zeros((3,3)))
+        for i in range(nb_pts):
+            # Propagate covariance through projection
+            # Sigma_xx in paper (eq. 3 and 4
+            # Instead of using eq. (4) from the paper, we rather use eq. (1) from [Forstner 2010]
+            # which doesn't use the jacobian of the projection. The results seems more realistic.
+            sigma_x[0:2,0:2] = cov[:,i].reshape((2,2))
+            # Compute normalization jacobian
+            # J in paper (eq. 6)
+            J = 1/norm_x[i] - (np.eye(3) - v[:,i] @ v[:,i].transpose())
+            # Propagate covariance through spherical normalization
+            # Sigma_vv in paper (eq. 6)
+            sigma_v[:,i] = (J @ sigma_x @ J.transpose()).reshape((9,1))
+
+    return v, sigma_v
 
 
 ### MAIN
@@ -503,23 +545,11 @@ def mlpnp(w_pts, v, cov = None, use_gn = False):
     transformation)
 """
 if __name__ == '__main__':
-    # Convert pixel coordinate points into rays (unitary bearing vectors)
-    # K : camera matrix (3x3)
-    # pix : each collumn of the matrix is a pixel to transform into ray
-    def pix2rays(K, pix):
-        # add z coordinate if not already existing (=1, on image plane)
-        if pix.shape[0] == 2:
-            pix = np.concatenate((pix,np.ones((pix.shape[1],1)).transpose()), axis = 0)
-        rays = npl.inv(K[0:3,0:3])*pix
-        rays[0,:] = -rays[0,:] # invert x coordinate because U (in image plane) is along -X (in camera frame)
-        rays /= npl.norm(rays,axis = 0)
-        return rays
-
     # Intrinsics matrix
     K = np.matrix('640 1 320 ; 0 480 240 ; 0 0 1')
 
-    nb_iter = 1000
-    display = False
+    nb_iter = 1
+    display = True
     randomize = True
     use_gn = False
 
@@ -545,11 +575,14 @@ if __name__ == '__main__':
         x_gt = np.concatenate((rod,trans), axis = 0)
 
         # Sample random points in image space
-        nb_pts = 10 # Number of points to generate
+        nb_pts = 6 # Number of points to generate
         pix = np.concatenate((np.random.randint(0,640,(1,nb_pts)), np.random.randint(0,480,(1,nb_pts))), axis = 0)
+        # Generate random covariance
+        cov = None
+        cov = np.random.rand(4,nb_pts)
         # Convert those pixels to rays
-        # v_i from paper
-        obs_rays = pix2rays(K,pix)
+        # v_i and sigma_vv from paper
+        obs_rays, cov = pix2rays(K,pix,cov)
 
         # Sample random distances for world coordinates
         # lambda_i from paper
@@ -570,13 +603,12 @@ if __name__ == '__main__':
         noise = np.random.normal(0,noise_sd,obs_rays.shape)
         obs_rays += noise
 
-        # Generate random covariance
-        # cov = np.random.rand(9,nb_pts)
-        cov = None
+        # print(world_pts)
+        # print(obs_rays)
 
         # Apply PnP
         tic = time.time()
-        x, x_gn = mlpnp(world_pts, obs_rays, cov, use_gn)
+        x, x_gn, sigma_rt = mlpnp(world_pts, obs_rays, cov, use_gn)
         tac = time.time()
         err_pnp = npl.norm(x_gt-x)
         err_gn = npl.norm(x_gt-x_gn)
@@ -584,17 +616,26 @@ if __name__ == '__main__':
             print('x_gt  :\n', x_gt)
             print('x_pnp :\n', x)
             print('error :', err_pnp)
+            if use_gn:
+                print('x_gn :\n', x_gn)
+                print('error :', err_gn, '\n')
+            print('covariance -')
+            print(sigma_rt)
             print()
-            print('x_gn :\n', x_gn)
-            print('error :', npl.norm(x_gt-x_gn), '\n')
-
-        if err_pnp < err_gn:
-            count_ko += 1
+        if use_gn:
+            if err_pnp < err_gn:
+                count_ko += 1
+            else:
+                count_ok += 1
         else:
-            count_ok += 1
+            if err_pnp > 0.05:
+                count_ko += 1
+            else:
+                count_ok += 1
         ls_time.append(tac-tic)
         ls_prec.append(err_pnp)
         ls_p_gn.append(err_gn)
+
     if nb_iter != 1:
         print('score -')
         print('  ok  :', count_ok)
@@ -605,8 +646,7 @@ if __name__ == '__main__':
         print('precision -')
         print('  av. :', np.mean(ls_prec))
         print('  sd. :', np.std (ls_prec))
-        print('precision gn -')
-        print('  av. :', np.mean(ls_p_gn))
-        print('  sd. :', np.std (ls_p_gn))
-
-# pts = np.matrix(np.random.rand(3,nb_pts))
+        if use_gn:
+            print('precision gn -')
+            print('  av. :', np.mean(ls_p_gn))
+            print('  sd. :', np.std (ls_p_gn))
