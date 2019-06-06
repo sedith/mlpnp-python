@@ -492,7 +492,7 @@ def mlpnp(w_pts, v, cov = None, use_gn = False):
 # propagate the observation covariance through the projection and transform it to desired shape
 # We assume the perspective case (pinhole model), hence pi is K^(-1)
 # eq. (2) to (6) in paper
-# K     : (3x3) camera intrinsics matrix -- pi in paper
+# K     : (3x3) cinvamera intrinsics matrix -- pi in paper
 # pix   : (2,n) or (3,n) matrix, each collumn corresponds to an observed pixel -- x' in paper
 # cov   : (4,n) matrix, each collum corresponds to the (2,2) covariance matrix for each observations -- Sigma_x'x' in paper
 # output: (3,n) matrix, each collum corresponds to the projected ray for each pixel -- v in paper
@@ -502,8 +502,6 @@ def pix2rays(K, pix, cov = None):
     if pix.shape[0] == 2:
         pix = np.concatenate((pix,np.ones((pix.shape[1],1)).transpose()), axis = 0)
     x = npl.inv(K[0:3,0:3])*pix
-    # Invert first coordinate because u (in image plane) is along -x (in camera frame)
-    x[0,:] = -x[0,:]
     norm_x = npl.norm(x,axis = 0)
     v = np.matrix(x / norm_x)
 
@@ -575,7 +573,7 @@ if __name__ == '__main__':
         x_gt = np.concatenate((rod,trans), axis = 0)
 
         # Sample random points in image space
-        nb_pts = 6 # Number of points to generate
+        nb_pts = 8 # Number of points to generate
         pix = np.concatenate((np.random.randint(0,640,(1,nb_pts)), np.random.randint(0,480,(1,nb_pts))), axis = 0)
         # Generate random covariance
         cov = None
@@ -609,6 +607,7 @@ if __name__ == '__main__':
         # Apply PnP
         tic = time.time()
         x, x_gn, sigma_rt = mlpnp(world_pts, obs_rays, cov, use_gn)
+        # _,r,t = cv2.solvePnP(obj_3d_points, obj_2d_points, K, cv2.SOLVEPNP_ITERATIVE)
         tac = time.time()
         err_pnp = npl.norm(x_gt-x)
         err_gn = npl.norm(x_gt-x_gn)
