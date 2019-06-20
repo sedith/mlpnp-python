@@ -6,7 +6,7 @@ from scipy.linalg import null_space
 import math
 from math import sin, cos, acos, sqrt, pi
 import time
-
+import cv2
 
 ### RODRIGUES CONVERSIONS
 def rod2rot(rod):
@@ -73,7 +73,7 @@ def jacobian(pt, nullspace_r, nullspace_s, rot, trans):
     t19 = t10*t11*w2
     t20 = t13*t14*w1*w3
     t24 = t6+t7
-    t27 = t16+t17 # R12
+    t27 = t16+t17 # R12
     t28 = Y1*t27
     t29 = t19-t20 # R13
     t30 = Z1*t29
@@ -577,7 +577,7 @@ if __name__ == '__main__':
         pix = np.concatenate((np.random.randint(0,640,(1,nb_pts)), np.random.randint(0,480,(1,nb_pts))), axis = 0)
         # Generate random covariance
         cov = None
-        cov = np.random.rand(4,nb_pts)
+        # cov = np.random.rand(4,nb_pts)
         # Convert those pixels to rays
         # v_i and sigma_vv from paper
         obs_rays, cov = pix2rays(K,pix,cov)
@@ -601,25 +601,39 @@ if __name__ == '__main__':
         noise = np.random.normal(0,noise_sd,obs_rays.shape)
         obs_rays += noise
 
-        # print(world_pts)
-        # print(obs_rays)
+        # OpenCV comparisons
+        # print(world_pts.shape)
+        # print(obs_rays.shape)
+        w_pts=[]
+        i_pts=[]
+        for i in range (nb_pts):
+            w_pts.append(world_pts[:,i])
+            i_pts.append(pix[:,i])
+
+        obj_2d_points = np.array(i_pts, dtype=float)
+        obj_3d_points = np.array(w_pts, dtype=float)
+        obj_2d_points = obj_2d_points.reshape((nb_pts,2,1))
+
+        # print(obj_2d_points.shape)
+        # print(obj_3d_points.shape)
 
         # Apply PnP
         tic = time.time()
         x, x_gn, sigma_rt = mlpnp(world_pts, obs_rays, cov, use_gn)
-        # _,r,t = cv2.solvePnP(obj_3d_points, obj_2d_points, K, cv2.SOLVEPNP_ITERATIVE)
+        _,r,t = cv2.solvePnP(obj_3d_points, obj_2d_points, K, cv2.SOLVEPNP_DLS)
+        x_cv2 = np.matrix(np.concatenate((r,t)))
         tac = time.time()
         err_pnp = npl.norm(x_gt-x)
         err_gn = npl.norm(x_gt-x_gn)
         if display:
             print('x_gt  :\n', x_gt)
+            print('x_cv2 :\n', x_cv2)
             print('x_pnp :\n', x)
             print('error :', err_pnp)
             if use_gn:
                 print('x_gn :\n', x_gn)
                 print('error :', err_gn, '\n')
-            print('covariance -')
-            print(sigma_rt)
+            print('covariance :\n', sigma_rt)
             print()
         if use_gn:
             if err_pnp < err_gn:
